@@ -1,0 +1,20 @@
+{
+  "api": "v1",
+  "description": "本地能力中心：把功能清单里本机可实现的能力暴露为本地任务队列动作，不联网、不需要 Token",
+  "requires": [
+    "text.receive",
+    "text.send"
+  ],
+  "message_types": [1],
+  "business": [
+    {
+      "function": "Plugin.on_load",
+      "label": "启动本地任务队列工作线程"
+    },
+    {
+      "function": "Plugin.on_unload",
+      "label": "停止工作线程"
+    }
+  ],
+  "scheduled_actions": []
+}

@@ -1,0 +1,39 @@
+{
+  "name": "report_bridge",
+  "api": "v1",
+  "description": "采集群文本、链接（分享卡片/文本网址）与公众号消息（含一条推送里的多篇文章），批量上报远端服务器、支持群内即时简报回复",
+  "entry": "__init__.py",
+  "message_types": [1],
+  "requires": ["group.text.receive", "group.text.send", "text.send", "group.text.mention"],
+  "business": [
+    {"function": "Plugin.on_message", "label": "文本采集与批量上报"},
+    {"function": "Plugin._on_monitor", "label": "分享卡片 / 公众号文章分享"},
+    {"function": "Plugin._on_native_message", "label": "公众号推送图文与文字消息"}
+  ],
+  "scheduled_actions": [
+    {
+      "id": "flush",
+      "label": "立即上报缓冲消息",
+      "method": "scheduled_flush",
+      "fields": []
+    },
+    {
+      "id": "daily_report",
+      "label": "发送群消息日报",
+      "method": "scheduled_report",
+      "fields": [
+        {"name": "chat_id", "label": "群会话 ID", "type": "chat", "required": true},
+        {"name": "day", "label": "日期 YYYY-MM-DD，留空为今天", "type": "text", "required": false}
+      ]
+    },
+    {
+      "id": "send_text",
+      "label": "发送任意文本消息",
+      "method": "scheduled_send",
+      "fields": [
+        {"name": "chat_id", "label": "会话 ID", "type": "chat", "required": true},
+        {"name": "text", "label": "消息正文", "type": "textarea", "required": true}
+      ]
+    }
+  ]
+}

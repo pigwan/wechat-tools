@@ -1,0 +1,946 @@
+{
+  "_comment": "静态需求对照表：只是功能名称清单，运行时不联网、不需要 Token。可手工编辑。",
+  "source": "https://doc.geweapi.com/llms.txt",
+  "generated_at": "2026-11-11T01:25:03+00:00",
+  "count": 134,
+  "items": [
+    {
+      "id": "api-139908278",
+      "name": "获取登录二维码(步骤1)",
+      "module": "登录模块",
+      "submodule": "",
+      "doc_id": "api-139908278"
+    },
+    {
+      "id": "api-139908279",
+      "name": "执行登录(步骤2)",
+      "module": "登录模块",
+      "submodule": "",
+      "doc_id": "api-139908279"
+    },
+    {
+      "id": "api-212040839",
+      "name": "设置回调地址",
+      "module": "登录模块",
+      "submodule": "",
+      "doc_id": "api-212040839"
+    },
+    {
+      "id": "api-176158311",
+      "name": "掉线重连",
+      "module": "登录模块",
+      "submodule": "",
+      "doc_id": "api-176158311"
+    },
+    {
+      "id": "api-139908280",
+      "name": "弹框登录",
+      "module": "登录模块",
+      "submodule": "",
+      "doc_id": "api-139908280"
+    },
+    {
+      "id": "api-139908283",
+      "name": "获取通讯录列表",
+      "module": "联系人模块",
+      "submodule": "",
+      "doc_id": "api-139908283"
+    },
+    {
+      "id": "api-139908284",
+      "name": "获取通讯录列表缓存",
+      "module": "联系人模块",
+      "submodule": "",
+      "doc_id": "api-139908284"
+    },
+    {
+      "id": "api-139908288",
+      "name": "获取群/好友简要信息",
+      "module": "联系人模块",
+      "submodule": "",
+      "doc_id": "api-139908288"
+    },
+    {
+      "id": "api-139908289",
+      "name": "获取群/好友详细信息",
+      "module": "联系人模块",
+      "submodule": "",
+      "doc_id": "api-139908289"
+    },
+    {
+      "id": "api-139908285",
+      "name": "搜索好友",
+      "module": "联系人模块",
+      "submodule": "",
+      "doc_id": "api-139908285"
+    },
+    {
+      "id": "api-139908286",
+      "name": "添加联系人/同意添加好友",
+      "module": "联系人模块",
+      "submodule": "",
+      "doc_id": "api-139908286"
+    },
+    {
+      "id": "api-139908287",
+      "name": "删除好友",
+      "module": "联系人模块",
+      "submodule": "",
+      "doc_id": "api-139908287"
+    },
+    {
+      "id": "api-139908290",
+      "name": "设置好友仅聊天",
+      "module": "联系人模块",
+      "submodule": "",
+      "doc_id": "api-139908290"
+    },
+    {
+      "id": "api-145761946",
+      "name": "设置好友备注",
+      "module": "联系人模块",
+      "submodule": "",
+      "doc_id": "api-145761946"
+    },
+    {
+      "id": "api-153574636",
+      "name": "获取手机通讯录",
+      "module": "联系人模块",
+      "submodule": "",
+      "doc_id": "api-153574636"
+    },
+    {
+      "id": "api-153576030",
+      "name": "上传手机通讯录",
+      "module": "联系人模块",
+      "submodule": "",
+      "doc_id": "api-153576030"
+    },
+    {
+      "id": "api-221630088",
+      "name": "搜索企微",
+      "module": "联系人模块",
+      "submodule": "",
+      "doc_id": "api-221630088"
+    },
+    {
+      "id": "api-221630077",
+      "name": "添加企微好友",
+      "module": "联系人模块",
+      "submodule": "",
+      "doc_id": "api-221630077"
+    },
+    {
+      "id": "api-176159092",
+      "name": "同步企微好友",
+      "module": "联系人模块",
+      "submodule": "",
+      "doc_id": "api-176159092"
+    },
+    {
+      "id": "api-176159097",
+      "name": "获取企微好友详情",
+      "module": "联系人模块",
+      "submodule": "",
+      "doc_id": "api-176159097"
+    },
+    {
+      "id": "api-143881080",
+      "name": "检测好友关系",
+      "module": "联系人模块",
+      "submodule": "",
+      "doc_id": "api-143881080"
+    },
+    {
+      "id": "api-139908291",
+      "name": "创建微信群",
+      "module": "群模块",
+      "submodule": "",
+      "doc_id": "api-139908291"
+    },
+    {
+      "id": "api-139908292",
+      "name": "修改群名称",
+      "module": "群模块",
+      "submodule": "",
+      "doc_id": "api-139908292"
+    },
+    {
+      "id": "api-139908293",
+      "name": "修改群备注",
+      "module": "群模块",
+      "submodule": "",
+      "doc_id": "api-139908293"
+    },
+    {
+      "id": "api-139908294",
+      "name": "修改我在群内的昵称",
+      "module": "群模块",
+      "submodule": "",
+      "doc_id": "api-139908294"
+    },
+    {
+      "id": "api-139908295",
+      "name": "邀请/添加 进群",
+      "module": "群模块",
+      "submodule": "",
+      "doc_id": "api-139908295"
+    },
+    {
+      "id": "api-139908296",
+      "name": "删除群成员",
+      "module": "群模块",
+      "submodule": "",
+      "doc_id": "api-139908296"
+    },
+    {
+      "id": "api-139908297",
+      "name": "退出群聊",
+      "module": "群模块",
+      "submodule": "",
+      "doc_id": "api-139908297"
+    },
+    {
+      "id": "api-139908299",
+      "name": "获取群信息",
+      "module": "群模块",
+      "submodule": "",
+      "doc_id": "api-139908299"
+    },
+    {
+      "id": "api-139908300",
+      "name": "获取群成员列表",
+      "module": "群模块",
+      "submodule": "",
+      "doc_id": "api-139908300"
+    },
+    {
+      "id": "api-139908301",
+      "name": "获取群成员详情",
+      "module": "群模块",
+      "submodule": "",
+      "doc_id": "api-139908301"
+    },
+    {
+      "id": "api-139908302",
+      "name": "获取群公告",
+      "module": "群模块",
+      "submodule": "",
+      "doc_id": "api-139908302"
+    },
+    {
+      "id": "api-139908303",
+      "name": "设置群公告",
+      "module": "群模块",
+      "submodule": "",
+      "doc_id": "api-139908303"
+    },
+    {
+      "id": "api-139908304",
+      "name": "同意进群",
+      "module": "群模块",
+      "submodule": "",
+      "doc_id": "api-139908304"
+    },
+    {
+      "id": "api-139908305",
+      "name": "添加群成员为好友",
+      "module": "群模块",
+      "submodule": "",
+      "doc_id": "api-139908305"
+    },
+    {
+      "id": "api-139908306",
+      "name": "获取群二维码",
+      "module": "群模块",
+      "submodule": "",
+      "doc_id": "api-139908306"
+    },
+    {
+      "id": "api-139908307",
+      "name": "群保存到通讯录",
+      "module": "群模块",
+      "submodule": "",
+      "doc_id": "api-139908307"
+    },
+    {
+      "id": "api-139908308",
+      "name": "管理员操作",
+      "module": "群模块",
+      "submodule": "",
+      "doc_id": "api-139908308"
+    },
+    {
+      "id": "api-139908309",
+      "name": "聊天置顶",
+      "module": "群模块",
+      "submodule": "",
+      "doc_id": "api-139908309"
+    },
+    {
+      "id": "api-139908310",
+      "name": "设置消息免打扰",
+      "module": "群模块",
+      "submodule": "",
+      "doc_id": "api-139908310"
+    },
+    {
+      "id": "api-139908311",
+      "name": "扫码进群",
+      "module": "群模块",
+      "submodule": "",
+      "doc_id": "api-139908311"
+    },
+    {
+      "id": "api-139908312",
+      "name": "确认进群申请",
+      "module": "群模块",
+      "submodule": "",
+      "doc_id": "api-139908312"
+    },
+    {
+      "id": "api-139908298",
+      "name": "解散群聊",
+      "module": "群模块",
+      "submodule": "",
+      "doc_id": "api-139908298"
+    },
+    {
+      "id": "api-265074707",
+      "name": "下载文件",
+      "module": "消息模块",
+      "submodule": "下载",
+      "doc_id": "api-265074707"
+    },
+    {
+      "id": "api-139908329",
+      "name": "下载图片",
+      "module": "消息模块",
+      "submodule": "下载",
+      "doc_id": "api-139908329"
+    },
+    {
+      "id": "api-139908330",
+      "name": "下载语音",
+      "module": "消息模块",
+      "submodule": "下载",
+      "doc_id": "api-139908330"
+    },
+    {
+      "id": "api-139908331",
+      "name": "下载视频",
+      "module": "消息模块",
+      "submodule": "下载",
+      "doc_id": "api-139908331"
+    },
+    {
+      "id": "api-139908332",
+      "name": "下载emoji",
+      "module": "消息模块",
+      "submodule": "下载",
+      "doc_id": "api-139908332"
+    },
+    {
+      "id": "api-139908333",
+      "name": "cdn下载",
+      "module": "消息模块",
+      "submodule": "下载",
+      "doc_id": "api-139908333"
+    },
+    {
+      "id": "api-139908313",
+      "name": "发送文字消息",
+      "module": "消息模块",
+      "submodule": "",
+      "doc_id": "api-139908313"
+    },
+    {
+      "id": "api-139908314",
+      "name": "发送文件消息",
+      "module": "消息模块",
+      "submodule": "",
+      "doc_id": "api-139908314"
+    },
+    {
+      "id": "api-139908315",
+      "name": "发送图片消息",
+      "module": "消息模块",
+      "submodule": "",
+      "doc_id": "api-139908315"
+    },
+    {
+      "id": "api-139908316",
+      "name": "发送语音消息",
+      "module": "消息模块",
+      "submodule": "",
+      "doc_id": "api-139908316"
+    },
+    {
+      "id": "api-139908317",
+      "name": "发送视频消息",
+      "module": "消息模块",
+      "submodule": "",
+      "doc_id": "api-139908317"
+    },
+    {
+      "id": "api-139908318",
+      "name": "发送链接消息",
+      "module": "消息模块",
+      "submodule": "",
+      "doc_id": "api-139908318"
+    },
+    {
+      "id": "api-139908319",
+      "name": "发送名片消息",
+      "module": "消息模块",
+      "submodule": "",
+      "doc_id": "api-139908319"
+    },
+    {
+      "id": "api-139908320",
+      "name": "发送emoji消息",
+      "module": "消息模块",
+      "submodule": "",
+      "doc_id": "api-139908320"
+    },
+    {
+      "id": "api-139908321",
+      "name": "发送appmsg消息",
+      "module": "消息模块",
+      "submodule": "",
+      "doc_id": "api-139908321"
+    },
+    {
+      "id": "api-484848631",
+      "name": "发送合并消息",
+      "module": "消息模块",
+      "submodule": "",
+      "doc_id": "api-484848631"
+    },
+    {
+      "id": "api-139908322",
+      "name": "发送小程序消息",
+      "module": "消息模块",
+      "submodule": "",
+      "doc_id": "api-139908322"
+    },
+    {
+      "id": "api-452601074",
+      "name": "发送定位",
+      "module": "消息模块",
+      "submodule": "",
+      "doc_id": "api-452601074"
+    },
+    {
+      "id": "api-139908323",
+      "name": "转发文件",
+      "module": "消息模块",
+      "submodule": "",
+      "doc_id": "api-139908323"
+    },
+    {
+      "id": "api-139908324",
+      "name": "转发图片",
+      "module": "消息模块",
+      "submodule": "",
+      "doc_id": "api-139908324"
+    },
+    {
+      "id": "api-139908325",
+      "name": "转发视频",
+      "module": "消息模块",
+      "submodule": "",
+      "doc_id": "api-139908325"
+    },
+    {
+      "id": "api-139908326",
+      "name": "转发链接",
+      "module": "消息模块",
+      "submodule": "",
+      "doc_id": "api-139908326"
+    },
+    {
+      "id": "api-139908327",
+      "name": "转发小程序",
+      "module": "消息模块",
+      "submodule": "",
+      "doc_id": "api-139908327"
+    },
+    {
+      "id": "api-139908328",
+      "name": "撤回消息",
+      "module": "消息模块",
+      "submodule": "",
+      "doc_id": "api-139908328"
+    },
+    {
+      "id": "api-139908334",
+      "name": "点赞/取消点赞",
+      "module": "朋友圈模块",
+      "submodule": "",
+      "doc_id": "api-139908334"
+    },
+    {
+      "id": "api-139908335",
+      "name": "删除朋友圈",
+      "module": "朋友圈模块",
+      "submodule": "",
+      "doc_id": "api-139908335"
+    },
+    {
+      "id": "api-139908336",
+      "name": "设置朋友圈可见范围",
+      "module": "朋友圈模块",
+      "submodule": "",
+      "doc_id": "api-139908336"
+    },
+    {
+      "id": "api-139908337",
+      "name": "是否允许陌生人查看朋友圈",
+      "module": "朋友圈模块",
+      "submodule": "",
+      "doc_id": "api-139908337"
+    },
+    {
+      "id": "api-139908338",
+      "name": "设置某条朋友圈为隐私/公开",
+      "module": "朋友圈模块",
+      "submodule": "",
+      "doc_id": "api-139908338"
+    },
+    {
+      "id": "api-139908339",
+      "name": "下载朋友圈视频",
+      "module": "朋友圈模块",
+      "submodule": "",
+      "doc_id": "api-139908339"
+    },
+    {
+      "id": "api-139908340",
+      "name": "发送文字朋友圈",
+      "module": "朋友圈模块",
+      "submodule": "",
+      "doc_id": "api-139908340"
+    },
+    {
+      "id": "api-139908341",
+      "name": "发送图片朋友圈",
+      "module": "朋友圈模块",
+      "submodule": "",
+      "doc_id": "api-139908341"
+    },
+    {
+      "id": "api-139908342",
+      "name": "发送视频朋友圈",
+      "module": "朋友圈模块",
+      "submodule": "",
+      "doc_id": "api-139908342"
+    },
+    {
+      "id": "api-139908343",
+      "name": "发送链接朋友圈",
+      "module": "朋友圈模块",
+      "submodule": "",
+      "doc_id": "api-139908343"
+    },
+    {
+      "id": "api-139908344",
+      "name": "上传朋友圈图片",
+      "module": "朋友圈模块",
+      "submodule": "",
+      "doc_id": "api-139908344"
+    },
+    {
+      "id": "api-139908345",
+      "name": "上传朋友圈视频",
+      "module": "朋友圈模块",
+      "submodule": "",
+      "doc_id": "api-139908345"
+    },
+    {
+      "id": "api-139908346",
+      "name": "转发朋友圈",
+      "module": "朋友圈模块",
+      "submodule": "",
+      "doc_id": "api-139908346"
+    },
+    {
+      "id": "api-139908347",
+      "name": "自己的朋友圈列表",
+      "module": "朋友圈模块",
+      "submodule": "",
+      "doc_id": "api-139908347"
+    },
+    {
+      "id": "api-139908348",
+      "name": "联系人的朋友圈列表",
+      "module": "朋友圈模块",
+      "submodule": "",
+      "doc_id": "api-139908348"
+    },
+    {
+      "id": "api-139908349",
+      "name": "某条朋友圈详情",
+      "module": "朋友圈模块",
+      "submodule": "",
+      "doc_id": "api-139908349"
+    },
+    {
+      "id": "api-139908350",
+      "name": "评论/删除评论",
+      "module": "朋友圈模块",
+      "submodule": "",
+      "doc_id": "api-139908350"
+    },
+    {
+      "id": "api-139908351",
+      "name": "添加标签",
+      "module": "标签模块",
+      "submodule": "",
+      "doc_id": "api-139908351"
+    },
+    {
+      "id": "api-139908352",
+      "name": "删除标签",
+      "module": "标签模块",
+      "submodule": "",
+      "doc_id": "api-139908352"
+    },
+    {
+      "id": "api-139908353",
+      "name": "标签列表",
+      "module": "标签模块",
+      "submodule": "",
+      "doc_id": "api-139908353"
+    },
+    {
+      "id": "api-139908354",
+      "name": "修改好友标签",
+      "module": "标签模块",
+      "submodule": "",
+      "doc_id": "api-139908354"
+    },
+    {
+      "id": "api-139908355",
+      "name": "获取个人资料",
+      "module": "个人模块",
+      "submodule": "",
+      "doc_id": "api-139908355"
+    },
+    {
+      "id": "api-139908356",
+      "name": "获取自己的二维码",
+      "module": "个人模块",
+      "submodule": "",
+      "doc_id": "api-139908356"
+    },
+    {
+      "id": "api-139908357",
+      "name": "获取设备记录",
+      "module": "个人模块",
+      "submodule": "",
+      "doc_id": "api-139908357"
+    },
+    {
+      "id": "api-139908358",
+      "name": "隐私设置",
+      "module": "个人模块",
+      "submodule": "",
+      "doc_id": "api-139908358"
+    },
+    {
+      "id": "api-139908359",
+      "name": "修改个人信息",
+      "module": "个人模块",
+      "submodule": "",
+      "doc_id": "api-139908359"
+    },
+    {
+      "id": "api-139908360",
+      "name": "修改头像",
+      "module": "个人模块",
+      "submodule": "",
+      "doc_id": "api-139908360"
+    },
+    {
+      "id": "api-139908361",
+      "name": "同步收藏夹",
+      "module": "收藏夹模块",
+      "submodule": "",
+      "doc_id": "api-139908361"
+    },
+    {
+      "id": "api-139908362",
+      "name": "获取收藏夹内容",
+      "module": "收藏夹模块",
+      "submodule": "",
+      "doc_id": "api-139908362"
+    },
+    {
+      "id": "api-139908363",
+      "name": "删除收藏夹",
+      "module": "收藏夹模块",
+      "submodule": "",
+      "doc_id": "api-139908363"
+    },
+    {
+      "id": "api-144566017",
+      "name": "关注",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144566017"
+    },
+    {
+      "id": "api-144581776",
+      "name": "评论",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144581776"
+    },
+    {
+      "id": "api-144595581",
+      "name": "浏览",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144595581"
+    },
+    {
+      "id": "api-144570567",
+      "name": "用户主页",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144570567"
+    },
+    {
+      "id": "api-457717281",
+      "name": "获取私信SessionId",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-457717281"
+    },
+    {
+      "id": "api-144597891",
+      "name": "关注列表",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144597891"
+    },
+    {
+      "id": "api-144598053",
+      "name": "消息列表",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144598053"
+    },
+    {
+      "id": "api-144571885",
+      "name": "评论列表",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144571885"
+    },
+    {
+      "id": "api-186246168",
+      "name": "获取赞与收藏的视频列表",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-186246168"
+    },
+    {
+      "id": "api-144511330",
+      "name": "搜索视频号",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144511330"
+    },
+    {
+      "id": "api-144532615",
+      "name": "创建视频号",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144532615"
+    },
+    {
+      "id": "api-189454588",
+      "name": "根据id点赞",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-189454588"
+    },
+    {
+      "id": "api-189454620",
+      "name": "根据id点小红心",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-189454620"
+    },
+    {
+      "id": "api-144530919",
+      "name": "获取我的视频号信息",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144530919"
+    },
+    {
+      "id": "api-144594614",
+      "name": "修改我的视频号信息",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144594614"
+    },
+    {
+      "id": "api-210852661",
+      "name": "发送视频号消息",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-210852661"
+    },
+    {
+      "id": "api-212050672",
+      "name": "发送视频号朋友圈",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-212050672"
+    },
+    {
+      "id": "api-144596478",
+      "name": "获取私信人信息",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144596478"
+    },
+    {
+      "id": "api-144528559",
+      "name": "发私信文本消息",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144528559"
+    },
+    {
+      "id": "api-144549799",
+      "name": "发私信图片消息",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144549799"
+    },
+    {
+      "id": "api-144600734",
+      "name": "扫码关注",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144600734"
+    },
+    {
+      "id": "api-282523896",
+      "name": "搜索并关注",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-282523896"
+    },
+    {
+      "id": "api-144601719",
+      "name": "扫码浏览",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144601719"
+    },
+    {
+      "id": "api-144601935",
+      "name": "扫码评论",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144601935"
+    },
+    {
+      "id": "api-144601495",
+      "name": "扫码点赞",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144601495"
+    },
+    {
+      "id": "api-144600850",
+      "name": "扫码点小红心",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144600850"
+    },
+    {
+      "id": "api-282525999",
+      "name": "延迟点赞、小红心",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-282525999"
+    },
+    {
+      "id": "api-144556473",
+      "name": "扫码登录视频号助手",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144556473"
+    },
+    {
+      "id": "api-144599568",
+      "name": "扫码获取视频详情",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144599568"
+    },
+    {
+      "id": "api-144599378",
+      "name": "我的视频号二维码",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144599378"
+    },
+    {
+      "id": "api-144561904",
+      "name": "上传CDN视频",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144561904"
+    },
+    {
+      "id": "api-144563194",
+      "name": "发布CDN视频",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144563194"
+    },
+    {
+      "id": "api-288633556",
+      "name": "发布视频-新",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-288633556"
+    },
+    {
+      "id": "api-144552901",
+      "name": "同步私信消息",
+      "module": "视频号模块",
+      "submodule": "",
+      "doc_id": "api-144552901"
+    },
+    {
+      "id": "api-139908282",
+      "name": "检查是否在线",
+      "module": "账号管理",
+      "submodule": "",
+      "doc_id": "api-139908282"
+    },
+    {
+      "id": "api-139908281",
+      "name": "退出",
+      "module": "账号管理",
+      "submodule": "",
+      "doc_id": "api-139908281"
+    },
+    {
+      "id": "api-461681053",
+      "name": "设置代理",
+      "module": "账号管理",
+      "submodule": "",
+      "doc_id": "api-461681053"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "_comment": "把下面两段合并进 helper 项目根目录的 bot_config.json；不要直接改名为 bot_config.json 覆盖原文件。",
+  "chat_allowlist": [],
+  "plugins": {
+    "report_bridge": {
+      "enabled": true,
+      "endpoint": "http://127.0.0.1:8080/api/messages",
+      "token": "CHANGE_ME",
+      "only_groups": true,
+      "include_self": false,
+      "collect_official": true,
+      "group_allowlist": [],
+      "batch_size": 50,
+      "flush_seconds": 30,
+      "http_timeout_seconds": 5,
+      "report_keywords": ["/报告", "/今日报告"],
+      "report_top_n": 5
+    }
+  },
+  "_notes": [
+    "chat_allowlist 填群 ID 后，框架只分发这些群的消息，最省内存；留空则收全部会话。",
+    "group_allowlist 留空表示所有群都采集，也可只填要出报告的几个群 ID。",
+    "collect_official 默认为 true：公众号会话不是群，不受 only_groups 限制；关闭后不再采集公众号推送与群内公众号文章分享。",
+    "endpoint 填完整接收 URL。本机自测可用 http://127.0.0.1；推到外部服务器时必须改成 HTTPS 地址。",
+    "token 必须与接收端 BRIDGE_TOKEN 一致；未填或留 CHANGE_ME 时插件只本地落库、仍能群内简报。",
+    "群内发送 /报告 会触发真实艾特回复；定时动作 daily_report 可每日主动发日报。"
+  ]
+}
