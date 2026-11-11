@@ -310,6 +310,22 @@ def h_read_moments(ctx, p):
     return result
 
 
+def h_prepare_images(ctx, p):
+    """校验本机图片/视频文件；本地桥发布时会自动复制到微信 InputTemp。"""
+    raw = p.get("images")
+    paths = _as_list(raw) if isinstance(raw, str) else list(raw or [])
+    if not paths:
+        raise ValueError("请提供至少 1 个本机文件路径")
+    rows = []
+    for item in paths:
+        path = _require_file(item)
+        rows.append({"name": path.name, "path": str(path),
+                     "size": path.stat().st_size,
+                     "suffix": path.suffix.lower()})
+    return {"count": len(rows), "files": rows,
+            "note": "本地桥在发布时自动暂存图片，无需单独上传；视频朋友圈原生未开放"}
+
+
 def h_labels(ctx, p):
     labels = {}
     for row in _contact_rows(ctx):
@@ -357,8 +373,8 @@ HANDLERS = {
     "group_member_role": h_group_member_role,
     "moments_capabilities": h_moments_capabilities,
     "publish_moments": h_publish_moments, "interact_moments": h_interact_moments,
-    "read_moments": h_read_moments, "labels": h_labels,
-    "check_online": h_check_online, "profile": h_profile,
+    "read_moments": h_read_moments, "prepare_images": h_prepare_images,
+    "labels": h_labels, "check_online": h_check_online, "profile": h_profile,
 }
 
 

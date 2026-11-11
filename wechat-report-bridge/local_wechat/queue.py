@@ -156,6 +156,15 @@ class TaskQueue:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def close(self):
+        """关闭当前线程持有的连接（Windows 上删除临时库前必须调用）。"""
+        conn = getattr(self._local, "conn", None)
+        if conn is not None:
+            try:
+                conn.close()
+            finally:
+                self._local.conn = None
+
     def purge(self, days: int = 7) -> int:
         from datetime import timedelta
         cutoff = (datetime.now().astimezone() - timedelta(days=days)).isoformat(timespec="seconds")

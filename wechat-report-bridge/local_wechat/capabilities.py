@@ -42,6 +42,15 @@ message.forwardImage|转发图片|消息|partial|send_image|toWxid,path|转发�
 message.forwardVideo|转发视频|消息|partial|send_file|toWxid,path|转发视频|同上
 message.forwardUrl|转发链接|消息|partial|send_text|toWxid,content|转发链接|以文本重发 URL
 message.exportEmoticons|导出本地表情|消息|native|export_emoticons|convert|发送emoji消息|框架自带能力，GeWe 清单无对应项
+message.downloadCdn|CDN下载(本地媒体)|消息|composite|local_media|kind,limit|cdn下载|本地接收时媒体已落盘，按类型检索本机文件
+sns.sendUrlSns|发链接朋友圈|朋友圈|composite|publish_moments|content,privacy|发送链接朋友圈|以文字朋友圈发布 URL，非原生链接卡片
+sns.uploadSnsImage|准备朋友圈图片|朋友圈|composite|prepare_images|images|上传朋友圈图片|校验本机图片；发布时本地桥会自动暂存到微信 InputTemp
+sns.uploadSnsVideo|准备朋友圈视频|朋友圈|composite|prepare_images|images|上传朋友圈视频|仅校验本机文件；原生视频朋友圈未开放
+sns.downloadSnsVideo|下载朋友圈视频|朋友圈|composite|local_media|kind,limit|下载朋友圈视频|检索本机已落盘的视频文件
+sns.snsVisibleScope|朋友圈可见范围|朋友圈|partial|publish_moments|content,privacy|设置朋友圈可见范围|仅支持发布时 public/private，不能修改历史帖子
+sns.snsSetPrivacy|设置朋友圈隐私|朋友圈|partial|publish_moments|content,privacy|设置某条朋友圈为隐私/公开|同上，仅发布时生效
+personal.getQrCode|获取自己的二维码|个人|composite|profile|无参数|获取自己的二维码|返回本机账号标识；二维码图片需在微信客户端查看
+personal.getSafetyInfo|获取设备记录|个人|composite|profile|无参数|获取设备记录|返回本地连接会话信息
 contacts.fetchContactsList|获取通讯录|联系人|native|contacts|无参数|获取通讯录列表,获取通讯录列表缓存|只读本机已加载缓存，含资料与标签关联
 contacts.getBriefInfo|获取简要信息|联系人|composite|contact_info|wxid|获取群/好友简要信息|从通讯录缓存中取
 contacts.getDetailInfo|获取详细信息|联系人|composite|contact_info|wxid|获取群/好友详细信息|含标签关联
@@ -69,6 +78,12 @@ label.list|标签列表|标签|composite|labels|无参数|标签列表|从通讯
 account.checkOnline|检查是否在线|账号|native|check_online|无参数|检查是否在线|检查本地微信桥接连接状态
 account.getProfile|获取个人资料|账号|composite|profile|无参数|获取个人资料|返回当前绑定账号 wxid / 会话状态
 """
+
+# 本地架构下根本不需要的功能（不是"没实现"，是"不适用"）
+_NOT_APPLICABLE_MODULES = {
+    "登录模块": "本地是进程内 hook，微信已在 PC 端登录，无需扫码/设备登录/公网回调",
+    "账号管理": "退出与代理由框架启动参数控制，插件层不暴露；「检查是否在线」已本地实现",
+}
 
 # 底层明确不支持的模块/原因（用于生成覆盖报告，不伪造实现）
 _MODULE_REASONS = {
@@ -142,30 +157,38 @@ def match_action(need_name: str) -> Action | None:
 def coverage() -> dict:
     """生成 134 项需求的本地覆盖报告。"""
     items = load_catalog()
-    covered, uncovered = [], []
+    covered, uncovered, not_applicable = [], [], []
     by_module: dict[str, dict] = {}
     for item in items:
         mod = item.get("module", "其他")
-        slot = by_module.setdefault(mod, {"total": 0, "covered": 0})
+        slot = by_module.setdefault(mod, {"total": 0, "covered": 0,
+                                          "not_applicable": 0, "unsupported": 0})
         slot["total"] += 1
         action = match_action(item.get("name", ""))
         if action:
             covered.append({"name": item["name"], "module": mod,
                             "action": action.key, "status": action.status})
             slot["covered"] += 1
+        elif mod in _NOT_APPLICABLE_MODULES:
+            not_applicable.append({"name": item["name"], "module": mod,
+                                   "reason": _NOT_APPLICABLE_MODULES[mod]})
+            slot["not_applicable"] += 1
         else:
             reason = (_ACTION_REASONS.get(mod)
                       or _MODULE_REASONS.get(mod)
                       or "本地桥未开放该写入口")
             uncovered.append({"name": item["name"], "module": mod, "reason": reason})
+            slot["unsupported"] += 1
     return {
         "total": len(items),
         "covered": len(covered),
         "uncovered": len(uncovered),
+        "not_applicable": len(not_applicable),
         "actions": len(ACTIONS),
         "by_module": dict(sorted(by_module.items(), key=lambda kv: -kv[1]["total"])),
         "covered_items": covered,
         "uncovered_items": uncovered,
+        "not_applicable_items": not_applicable,
     }
 
 
