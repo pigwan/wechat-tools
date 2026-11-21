@@ -73,23 +73,34 @@ button { font-family: inherit; cursor: pointer; }
 .rail-btn:active { transform: scale(.94); }
 .rail-btn.active { color: var(--rail-icon-active); }
 
-/* 中间列表 */
+/* 中间列表
+   关键：min-width 必须显式设为 0。flex 项默认 min-width:auto = 内容最小宽度，
+   聊天页那条超长 nowrap 预览（.li-preview）会把整列撑到 1400px+，
+   右侧 .main 被挤到几像素，且 --list-w / 拖拽完全失效。
+   通讯录页只有短名字所以"看起来正常"，就是这个差异。 */
 .list {
   flex: 0 0 var(--list-w, 180px);
   display: flex; flex-direction: column;
+  min-width: 0;
   min-height: 0;
+  overflow: hidden;
   background: var(--list-bg);
   border-right: 1px solid var(--line);
 }
 
 /* 列表宽度拖拽手柄 */
 .resizer {
-  flex: 0 0 7px;
+  flex: 0 0 10px;
   cursor: col-resize;
   background: transparent;
   position: relative;
   z-index: 6;
   touch-action: none;
+}
+/* 扩大可拖拽命中区域（左右各外扩 5px），解决原来 7px 细条太难抓取、拖不动的问题 */
+.resizer::after {
+  content: "";
+  position: absolute; top: 0; bottom: 0; left: -5px; right: -5px;
 }
 .resizer::before {
   content: "";
@@ -98,7 +109,7 @@ button { font-family: inherit; cursor: pointer; }
   background: var(--line);
   transition: background .12s;
 }
-.resizer:hover::before, .resizer.dragging::before { background: var(--green); }
+.resizer:hover::before, .resizer.dragging::before { background: var(--green); width: 3px; }
 body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-select: none !important; }
 #app.nav-moments .resizer, #app.nav-apps .resizer { display: none; }
 .list-search { padding: 12px 12px 8px; }
@@ -484,6 +495,55 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
 .btn.danger:hover { background: #fbd5d5; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 
+/* ----------------------- 应用：文章链接推送 ----------------------- */
+.ap-body {
+  flex: 1; overflow-y: auto; min-height: 0; overscroll-behavior: contain;
+  padding: 18px 20px 30px; background: var(--main-bg);
+}
+.ap-card {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 9px; padding: 14px 16px; margin-bottom: 12px;
+}
+.ap-card h3 { margin: 0 0 12px; font-size: 14px; }
+.ap-form {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px 16px;
+}
+.ap-field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--text-2); }
+.ap-field.wide { grid-column: 1 / -1; }
+.ap-field span i { font-style: normal; color: var(--text-3); font-size: 11px; margin-left: 4px; }
+.ap-field input, .ap-field select {
+  height: 32px; border: 1px solid var(--line); border-radius: 5px;
+  padding: 0 10px; font-size: 13px; background: #fff; color: var(--text); outline: none;
+}
+.ap-field input:focus, .ap-field select:focus { border-color: var(--green); }
+.ap-check {
+  display: flex; align-items: center; gap: 7px; align-self: center;
+  font-size: 13px; color: var(--text);
+}
+.ap-check input { width: 15px; height: 15px; accent-color: var(--green); }
+.ap-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.ap-note { font-size: 12px; color: var(--text-3); line-height: 1.8; margin: 12px 0 0; }
+.ap-spec {
+  white-space: pre-wrap; word-break: break-all; background: #f7f7f7;
+  padding: 12px; border-radius: 5px; margin: 0;
+  font-size: 12px; line-height: 1.7; color: var(--text-2);
+  font-family: Consolas, Monaco, "Courier New", monospace;
+}
+.ap-logs { overflow-x: auto; }
+.ap-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.ap-table th {
+  text-align: left; color: var(--text-3); font-weight: 500; white-space: nowrap;
+  padding: 6px 8px; border-bottom: 1px solid var(--line);
+}
+.ap-table td {
+  padding: 7px 8px; border-bottom: 1px solid var(--line-soft);
+  color: var(--text-2); vertical-align: top;
+}
+.ap-table tr.ok td:nth-child(2) { color: var(--green); }
+.ap-table tr.bad td:nth-child(2) { color: var(--danger); }
+.ap-detail { max-width: 460px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* ----------------------- 响应式（窄屏） ----------------------- */
 @media (max-width: 860px) {
   .rail { flex: 0 0 56px; padding: 16px 0 12px; }
@@ -492,7 +552,7 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
   .list-body .li-avatar { flex-basis: 36px; width: 36px; height: 36px; }
   .bubble-col { max-width: 76%; }
   .app-grid { grid-template-columns: 1fr; }
-  .apps-body, .rem-list { padding: 14px 12px 24px; }
+  .apps-body, .rem-list, .ap-body { padding: 14px 12px 24px; }
   .rem-filters, .rem-summary { padding-left: 12px; padding-right: 12px; }
 }
 @media (max-width: 560px) {
@@ -501,4 +561,357 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
   .resizer { display: none; }
   .main { position: absolute; left: 56px; right: 0; top: 0; bottom: 0; }
   .modal-box { width: 96vw; }
+}
+
+/* ---- 拟人大脑 · 模型设置 ---- */
+.brain-cfg { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 10px; }
+.brain-cfg label { display: flex; flex-direction: column; gap: 4px; color: var(--text-2); font-size: 12px; }
+.brain-cfg input[type="text"], .brain-cfg input[type="password"] {
+  width: 100%; box-sizing: border-box; padding: 7px 9px; font-size: 13px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text);
+  outline: none;
+}
+.brain-cfg input:focus { border-color: var(--green); }
+.brain-cfg-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+.brain-cfg-actions .btn { flex: 1; }
+.brain-cfg-msg { font-size: 12px; line-height: 1.5; min-height: 16px; color: var(--text-3); word-break: break-all; }
+.brain-cfg-msg.ok { color: var(--green); }
+.brain-cfg-msg.bad { color: var(--danger); }
+
+/* ---- 拟人大脑 · 群聊白名单 ---- */
+.section-sub { display: block; font-size: 11px; font-weight: 400; color: var(--text-3); margin-top: 2px; }
+.btn.btn-sm { padding: 4px 10px; font-size: 12px; }
+.brain-groups { display: flex; flex-direction: column; gap: 7px; margin: 2px 0 10px; }
+.brain-groups-note { font-size: 11px; line-height: 1.5; color: var(--text-3); }
+.brain-group-search {
+  width: 100%; box-sizing: border-box; padding: 6px 9px; font-size: 12px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); outline: none;
+}
+.brain-group-search:focus { border-color: var(--green); }
+.brain-group-tools { display: flex; align-items: center; gap: 7px; }
+.brain-group-count { margin-left: auto; font-size: 11px; color: var(--text-3); }
+.brain-group-list {
+  max-height: 200px; overflow-y: auto; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--panel);
+}
+.brain-group-item {
+  display: flex; align-items: center; gap: 8px; padding: 6px 9px;
+  font-size: 12px; color: var(--text); cursor: pointer; border-bottom: 1px solid var(--line);
+}
+.brain-group-item:last-child { border-bottom: none; }
+.brain-group-item:hover { background: rgba(7, 193, 96, 0.06); }
+.brain-group-item input[type="checkbox"] { flex: 0 0 auto; accent-color: var(--green); }
+.brain-group-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brain-group-meta { flex: 0 0 auto; font-size: 11px; color: var(--text-3); }
+
+/* 宽屏下群列表分栏：N 个等质条目应提高密度，而不是把群名和「N 条」拉开一整行 */
+@media (min-width: 1101px) {
+  .brain-group-list {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    column-gap: 18px; align-content: start;
+  }
+  /* grid item 默认 min-width:auto 会让 text-overflow:ellipsis 失效 */
+  .brain-group-list > .brain-group-item { min-width: 0; }
+  /* 多列时 last-child 只抹掉右下角一格，会是整行缺一个口 */
+  .brain-group-list > .brain-group-item:last-child { border-bottom: 1px solid var(--line); }
+}
+
+/* ---- 拟人大脑 · 人设 ---- */
+.brain-persona { display: flex; flex-direction: column; gap: 10px; margin: 4px 0 10px; }
+.brain-persona label { display: flex; flex-direction: column; gap: 4px; color: var(--text-2); font-size: 12px; }
+.brain-persona-hint { font-size: 11px; color: var(--text-3); }
+.brain-persona textarea {
+  width: 100%; box-sizing: border-box; padding: 8px 10px; font-size: 12.5px; line-height: 1.6;
+  font-family: inherit; resize: vertical; min-height: 76px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); outline: none;
+}
+.brain-persona textarea:focus { border-color: var(--green); }
+.brain-persona-split {
+  display: flex; flex-direction: column; gap: 8px;
+  padding-top: 10px; border-top: 1px dashed var(--line);
+}
+
+/* ---- 拟人大脑 · 接话节奏 ---- */
+.brain-tuning { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 4px 0 10px; }
+.brain-tuning label { display: flex; flex-direction: column; gap: 4px; color: var(--text-2); font-size: 12px; }
+.brain-tuning input {
+  width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 13px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); outline: none;
+}
+.brain-tuning input:focus { border-color: var(--green); }
+.brain-tuning .brain-cfg-actions, .brain-tuning .brain-cfg-msg { grid-column: 1 / -1; }
+@media (max-width: 720px) { .brain-tuning { grid-template-columns: 1fr; } }
+
+/* ---- 拟人大脑 · 运行开关 ---- */
+.brain-runtime { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 10px; }
+.brain-switch-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 8px 2px; cursor: pointer; border-bottom: 1px solid var(--line);
+}
+.brain-switch-row:last-of-type { border-bottom: none; }
+.brain-switch-row > span { display: flex; flex-direction: column; gap: 2px; }
+.brain-switch-row b { font-size: 13px; font-weight: 500; color: var(--text); }
+.brain-switch-row small { font-size: 11px; color: var(--text-3); line-height: 1.4; }
+.brain-switch-row input[type="checkbox"] { flex: 0 0 auto; width: 16px; height: 16px; accent-color: var(--green); }
+
+/* ---- 拟人大脑 · 决策日志 ---- */
+.brain-logs { display: flex; flex-direction: column; gap: 8px; }
+.brain-log-status {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--text-3);
+}
+.brain-log-num { color: var(--text-3); }
+.brain-log-num b { color: var(--text-2); font-weight: 600; }
+.brain-log-num b.ok-text { color: var(--green); }
+.brain-badge {
+  display: inline-block; padding: 1px 7px; border-radius: 10px;
+  font-size: 11px; line-height: 17px; white-space: nowrap;
+}
+.brain-badge.ok { color: var(--green); background: rgba(7, 193, 96, 0.1); }
+.brain-badge.dry { color: var(--link); background: rgba(87, 107, 149, 0.12); }
+.brain-badge.warn { color: var(--warn); background: rgba(250, 157, 59, 0.14); }
+.brain-badge.mute { color: var(--text-3); background: rgba(0, 0, 0, 0.05); }
+.brain-log-tools { display: flex; align-items: center; gap: 8px; }
+.brain-log-tools .brain-group-search { flex: 1 1 auto; max-width: 320px; }
+.brain-log-scroll { max-height: 460px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+.brain-log-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.brain-log-table th {
+  position: sticky; top: 0; z-index: 1; text-align: left; color: var(--text-3);
+  font-weight: 500; white-space: nowrap; padding: 7px 8px;
+  background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.brain-log-table td {
+  padding: 7px 8px; border-bottom: 1px solid var(--line-soft);
+  color: var(--text-2); vertical-align: top;
+}
+.brain-log-table tr:hover td { background: rgba(7, 193, 96, 0.04); }
+.brain-log-time { white-space: nowrap; color: var(--text-3); }
+.brain-log-chat { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brain-log-text { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brain-log-reply { max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+
+/* ---- 拟人大脑 · 运行日志（终端风格） ---- */
+.brain-rtlog {
+  margin: 0; max-height: 280px; overflow: auto; padding: 10px 12px;
+  background: #1f1f1f; color: #d6d6d6; border-radius: 6px;
+  font-family: Consolas, Menlo, Monaco, "Courier New", monospace;
+  font-size: 11px; line-height: 1.65;
+  white-space: pre-wrap; word-break: break-all;
+}
+
+/* ===================================================================
+   拟人大脑 · 配置页（顶部 tab 式后台布局 · 终稿）
+   命名沿用 brain- 前缀；只新增，不覆盖 .ap-card / .rem-head 等既有类
+   =================================================================== */
+
+/* ---- 骨架与尺寸变量 ---- */
+.brain-page {
+  display: flex; flex-direction: column; height: 100%; min-height: 0;
+  --brain-head-pad-x: 16px;
+  --brain-gutter: 14px;
+  --brain-gap: 10px;
+  --brain-pane-max: 1180px;
+  --bg-hover: rgba(0, 0, 0, 0.045);
+  --brain-dirty: #fa9d3b;
+}
+
+.brain-head {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
+  padding: 8px var(--brain-head-pad-x);
+  background: var(--panel);
+}
+.brain-head-main { flex: 1; min-width: 0; }
+.brain-head-title { margin: 0; font-size: 14px; font-weight: 600; line-height: 20px; color: var(--text); }
+.brain-head-desc { margin: 1px 0 0; font-size: 11px; line-height: 1.4; color: var(--text-3); }
+.brain-head-side { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
+.brain-back { margin-right: 2px; }
+
+/* ---- 状态条（tab 上方，常驻不滚走） ---- */
+.brain-status {
+  flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center;
+  gap: 6px 14px; padding: 7px var(--brain-head-pad-x);
+  border-bottom: 1px solid var(--line-soft); background: var(--panel);
+  font-size: 11.5px; line-height: 1.4;
+}
+.brain-status-item { display: inline-flex; align-items: center; gap: 5px; color: var(--text-3); white-space: nowrap; }
+/* 色点唯一来源是 span.dot；无状态类的事实项（接管群数 / 最后活动）不出点，
+   否则一行会排出 4 个点。不要再加 ::before，避免双点。 */
+.brain-status-item .dot {
+  display: none; width: 5px; height: 5px; border-radius: 50%;
+  background: currentColor; flex: 0 0 auto;
+}
+.brain-status-item.ok, .brain-status-item.bad,
+.brain-status-item.dry, .brain-status-item.mute { color: var(--text-2); }
+.brain-status-item.ok { color: var(--green); font-weight: 500; }
+.brain-status-item.ok .dot, .brain-status-item.dry .dot,
+.brain-status-item.bad .dot, .brain-status-item.mute .dot { display: block; }
+.brain-status-item.bad { color: var(--text); }
+.brain-status-item.bad .dot { background: var(--danger); }
+.brain-status-item.dry { color: var(--link); }
+.brain-status-item.mute { color: var(--text-3); }
+.brain-status-sep { width: 1px; height: 11px; background: var(--line); flex: 0 0 auto; }
+
+/* ---- 顶部 tab（下划线式，36px） ---- */
+.brain-tabs {
+  flex: 0 0 auto; display: flex; align-items: stretch; gap: 20px; height: 36px;
+  padding: 0 var(--brain-head-pad-x); background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none;
+}
+.brain-tabs::-webkit-scrollbar { height: 0; }
+.brain-tabs.has-overflow {
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+}
+.brain-tab {
+  position: relative; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px;
+  padding: 0; border: 0; background: transparent;
+  color: var(--text-2); font-size: 13px; font-weight: 400; line-height: 1; white-space: nowrap;
+  border-radius: 4px 4px 0 0; transition: color .12s, background .12s;
+}
+.brain-tab::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
+  background: transparent; border-radius: 2px 2px 0 0; transition: background .12s;
+}
+.brain-tab:hover { color: var(--text); background: var(--bg-hover); }
+.brain-tab.active, .brain-tab.is-active { color: var(--text); font-weight: 600; }
+.brain-tab.active::after, .brain-tab.is-active::after { background: var(--green); }
+.brain-tab:focus-visible { outline: 2px solid var(--green); outline-offset: -4px; }
+.brain-tab { scroll-margin-inline: 20px; }
+.brain-tab-dirty {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--brain-dirty); flex: 0 0 auto;
+}
+
+/* ---- 内容区：唯一滚动容器 ---- */
+.brain-body {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  padding: var(--brain-gutter); background: var(--main-bg);
+}
+.brain-pane { margin: 0 auto; max-width: var(--brain-pane-max); }
+.brain-pane[hidden] { display: none !important; }
+.brain-pane[data-pane="groups"], .brain-pane[data-pane="logs"] { max-width: none; }
+
+/* ---- 两列布局（概览 / 接话） ---- */
+.brain-split { display: grid; grid-template-columns: clamp(280px, 34%, 360px) minmax(0, 1fr); gap: var(--brain-gap); align-items: start; }
+.brain-split > .brain-side {
+  position: sticky; top: 0; align-self: start;
+  max-height: calc(100dvh - 150px); overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: var(--brain-gap);
+}
+.brain-split > .brain-main { min-width: 0; }
+
+/* ---- 卡片 ---- */
+/* overflow:clip 而不是 hidden：hidden 会让卡片变成 sticky 的滚动容器，
+   <880 的 .brain-actions.is-sticky 就永远钉不到 .brain-body 底部（实测差 390px）。
+   clip 同样按圆角裁剪，但不建立滚动容器，sticky 才能以 .brain-body 为滚动口。 */
+.brain-card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; overflow: clip; }
+.brain-card + .brain-card,
+.brain-card + .brain-note,
+.brain-split + .brain-card,
+.brain-card + .brain-split { margin-top: var(--brain-gap); }
+.brain-split .brain-card + .brain-card { margin-top: 0; }
+.brain-card-head {
+  display: flex; align-items: center; gap: 12px; min-height: 34px;
+  padding: 6px 12px; background: var(--panel);
+  border-bottom: 1px solid var(--line-soft);
+}
+.brain-card-head > .brain-card-title:only-child { flex: 1; }
+.brain-card-head > div:first-child { flex: 1; min-width: 0; }
+.brain-card-title { margin: 0; font-size: 13.5px; font-weight: 600; line-height: 1.5; color: var(--text); }
+.brain-card-sub { margin: 1px 0 0; font-size: 11px; line-height: 1.5; color: var(--text-3); }
+.brain-card-ops { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
+.brain-card-body { padding: 10px 12px; }
+.brain-card.is-flush .brain-card-body { padding: 0; }
+.brain-card.is-danger { border-color: rgba(250, 81, 81, 0.4); }
+.brain-card.is-danger .brain-card-head { background: rgba(250, 81, 81, 0.05); }
+.brain-card.is-danger .brain-card-title { color: var(--danger); }
+.brain-note { margin: var(--brain-gap) 0 0; font-size: 11px; line-height: 1.7; color: var(--text-3); }
+
+/* ---- 表单 ---- */
+.brain-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+.brain-fields.is-single { grid-template-columns: minmax(0, 1fr); }
+.brain-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.brain-field.wide { grid-column: 1 / -1; }
+.brain-label { font-size: 12px; font-weight: 500; line-height: 18px; color: var(--text-2); }
+.brain-label .brain-req { color: var(--danger); font-weight: 500; margin-left: 2px; }
+.brain-hint { font-size: 11px; line-height: 1.5; color: var(--text-3); }
+.brain-error { font-size: 12px; line-height: 1.5; color: var(--danger); }
+
+.brain-field input, .brain-field select, .brain-field textarea {
+  width: 100%; min-width: 0; font-family: inherit; font-size: 13px; line-height: 1.5;
+  color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  outline: none; transition: border-color .12s, box-shadow .12s;
+}
+.brain-field input, .brain-field select { height: 30px; padding: 0 9px; }
+.brain-field textarea { padding: 7px 9px; min-height: 72px; resize: vertical; line-height: 1.6; }
+.brain-field select { padding-right: 26px; appearance: none; -webkit-appearance: none; cursor: pointer; }
+.brain-select { position: relative; display: block; }
+.brain-select::after {
+  content: "▾"; position: absolute; right: 9px; top: 50%; transform: translateY(-50%);
+  font-size: 10px; line-height: 1; color: var(--text-3); pointer-events: none;
+}
+.brain-field input::placeholder, .brain-field textarea::placeholder { color: var(--text-3); }
+.brain-field input:focus, .brain-field select:focus, .brain-field textarea:focus {
+  border-color: var(--green); box-shadow: 0 0 0 3px rgba(7, 193, 96, 0.16);
+}
+.brain-field.is-invalid input, .brain-field.is-invalid select, .brain-field.is-invalid textarea {
+  border-color: var(--danger); box-shadow: 0 0 0 3px rgba(250, 81, 81, 0.14);
+}
+.brain-field input:disabled, .brain-field select:disabled, .brain-field textarea:disabled {
+  background: var(--bg-hover); color: var(--text-3); border-color: var(--line-soft); cursor: not-allowed;
+}
+.brain-check {
+  display: flex; align-items: flex-start; gap: 8px;
+  font-size: 12.5px; line-height: 1.5; color: var(--text); cursor: pointer;
+}
+.brain-check input[type="checkbox"] { flex: 0 0 auto; width: 15px; height: 15px; margin: 1px 0 0; accent-color: var(--green); }
+.brain-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+/* 反馈文案是吸底条的最后一个 flex item：独占一行，才不会被 bar 的背景压住 */
+.brain-actions > .brain-cfg-msg,
+.brain-cfg-actions > .brain-cfg-msg { flex: 0 0 100%; margin-top: 2px; }
+.brain-actions .spacer { flex: 1; }
+.brain-actions .btn.primary { min-width: 88px; }
+
+/* ---- 按钮增量（不动 .btn 基础样式） ---- */
+.btn.ghost { background: transparent; box-shadow: inset 0 0 0 1px var(--line); color: var(--text-2); }
+.btn.ghost:hover { background: var(--bg-hover); color: var(--text); box-shadow: inset 0 0 0 1px var(--text-3); }
+.btn.link { background: transparent; padding: 0; color: var(--link); font-size: 12.5px; }
+.btn.link:hover { background: transparent; text-decoration: underline; }
+.btn.ghost.danger { background: transparent; color: var(--danger); box-shadow: inset 0 0 0 1px rgba(250, 81, 81, 0.35); }
+.btn.ghost.danger:hover { background: rgba(250, 81, 81, 0.08); box-shadow: inset 0 0 0 1px rgba(250, 81, 81, 0.6); }
+.btn.is-loading { opacity: 0.55; pointer-events: none; cursor: default; }
+.btn:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.btn.danger:focus-visible, .btn.ghost.danger:focus-visible { outline-color: var(--danger); }
+
+/* 二级按钮跟随主题，仅作用于本页，且排除 primary/danger/ghost/link */
+.brain-page .btn:not(.primary):not(.danger):not(.ghost):not(.link) {
+  background: color-mix(in srgb, var(--text) 10%, var(--panel));
+}
+.brain-page .btn:not(.primary):not(.danger):not(.ghost):not(.link):hover {
+  background: color-mix(in srgb, var(--text) 16%, var(--panel));
+}
+
+/* ---- 响应式 ---- */
+@media (max-width: 880px) {
+  .brain-page { --brain-gutter: 10px; --brain-gap: 8px; }
+  .brain-split { grid-template-columns: 1fr; }
+  .brain-split > .brain-side { position: static; max-height: none; overflow: visible; }
+  .brain-body { padding-bottom: 0; }
+  .brain-pane, .brain-split { padding-bottom: 10px; }
+  .brain-actions.is-sticky, .brain-cfg-actions.is-sticky {
+    position: sticky; bottom: 0; z-index: 2;
+    margin: 10px calc(var(--brain-gutter) * -1) 0;
+    padding: 8px var(--brain-gutter);
+    background: var(--panel); border-top: 1px solid var(--line);
+  }
+  .brain-head { flex-wrap: wrap; }
+  .brain-head-desc { max-width: none; }
+  .brain-group-list { max-height: 45vh; }
+}
+@media (max-width: 560px) {
+  .brain-page { --brain-head-pad-x: 10px; }
+  .brain-tabs { gap: 14px; }
+  .brain-tab { font-size: 12.5px; }
+  .brain-head-side { width: 100%; justify-content: flex-end; }
 }

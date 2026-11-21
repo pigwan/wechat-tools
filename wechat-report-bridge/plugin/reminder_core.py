@@ -46,11 +46,17 @@ ILLEGAL_BEHAVIOR = (
     "危险驾驶", "毒驾", "醉驾逃逸", "肇事逃逸",
 )
 
-# 合法但容易被政治词库误伤的中性词，放行
+# 合法但容易被词库误伤的中性词，放行。
+# 腾讯词库把一批日常词也单列成了词条：第 21078~21090 行是「广告/违禁品交易」
+# 词区（手机/电话/联系/出售/制作…），第 1538、45163 行「测试」夹在一堆 test
+# 大小写变体里。定时提醒里这些字极常用，按精确词条剔除；含这些字的真违禁复合词
+# （手机窃听、出售手机窃听器、制造炸药…）仍是独立词条/在 ILLEGAL_BEHAVIOR 里，不受影响。
 LEXICON_ALLOW = frozenset({
     "提醒", "开会", "会议", "交周报", "周报", "日报", "吃饭", "喝水",
     "吃药", "打卡", "下班", "上班", "接孩子", "取快递", "缴费", "还款",
     "生日", "纪念日", "体检", "复查", "疫苗", "健身", "运动", "睡觉",
+    "手机", "电话", "测试", "联系", "销售", "出售", "收购", "求购",
+    "制作", "制造", "自制", "购买", "地址",
 })
 
 
@@ -87,22 +93,47 @@ def load_lexicon(paths):
     return words
 
 
-def find_banned(text, lexicon):
-    """返回首个命中的违禁词条（归一化后），没有则 None。"""
+def find_banned_all(text, lexicon, limit=None):
+    """返回所有命中的违禁词条（归一化后），按在正文中出现的先后排序。
+
+    同一位置优先列更长的词（更具体）。limit 限制条数防止刷屏，None 不限制。
+    """
     norm = normalize(text)
     if not norm:
-        return None
-    hit = None
+        return []
+    hits = {}
     for ch in set(norm):
-        bucket = lexicon.get(ch)
-        if not bucket:
-            continue
-        for word in sorted(bucket, key=len, reverse=True):
-            if word in norm:
-                if hit is None or len(word) > len(hit):
-                    hit = word
-                break
-    return hit
+        for word in lexicon.get(ch, ()):
+            pos = norm.find(word)
+            if pos >= 0 and (word not in hits or pos < hits[word]):
+                hits[word] = pos
+    ordered = [w for w, _ in sorted(hits.items(), key=lambda kv: (kv[1], -len(kv[0])))]
+    # 同一段文字常被多个词条重复命中（「出售手机窃听器」会同时命中「出售」
+    # 「窃听」「手机窃听」「窃听器」…），只保留不被其它命中词包含的最长词，
+    # 避免回复里刷一长串同义碎片；互不相关的多个词仍然全部列出。
+    ordered = [w for w in ordered
+               if not any(w != other and w in other for other in ordered)]
+    return ordered[:limit] if limit else ordered
+
+
+def find_banned(text, lexicon):
+    """返回最长的命中词条（归一化后），没有则 None。保留给旧调用方。"""
+    hits = find_banned_all(text, lexicon)
+    return max(hits, key=len) if hits else None
+
+
+def mask_word(word):
+    """逐字用 * 隔开，避免在提示里原样重发违禁词：手机 -> 手*机。"""
+    return "*".join(str(word or ""))
+
+
+def format_banned_reply(hits):
+    """拦截提示：把命中的词打码后直接列出来，方便知道该改哪几个字。"""
+    if not hits:
+        # 刻意与旧版文案区分：以后再看到「违法违规信息」字样，说明跑的是旧副本
+        return "❌ 内容触发违禁词，无法设置提醒。"
+    words = "、".join("【%s】" % mask_word(w) for w in hits if w)
+    return "❌ 内容触发违禁词：%s，无法设置提醒。" % words
 
 
 # --------------------------------------------------------------------------
@@ -472,11 +503,20 @@ def _parse_absolute(text, now, spans):
     if date_word and "晚" in str(date_word) and hhmm[0] < 12:
         hhmm = (hhmm[0] + 12, hhmm[1])
 
+    # 显式带了上午时段词（凌晨/早上/早晨/上午/中午）时，不要做下面的「下午优先」推断。
+    explicit_am = any(w in text for w in ("凌晨", "早上", "早晨", "上午", "中午"))
+
     base = base or now
     target_dt = _mk_dt(base, hhmm[0], hhmm[1])
     if target_dt <= now:
-        # 只写时刻没写日期，或写的是今天但时刻已过 -> 顺延一天
-        target_dt += timedelta(days=1)
+        # 只写时刻没写日期，或写的是今天但时刻已过 -> 顺延
+        if hhmm[0] < 12 and not explicit_am:
+            # 没有上午/下午限定词的钟点：下午或晚上说「5点」通常指 17:00 而非凌晨 05:00。
+            # 今天 h:00 已过，先试同日的 h+12（下午），仍过才顺延到明天 h:00。
+            pm = _mk_dt(base, hhmm[0] + 12, hhmm[1])
+            target_dt = pm if pm > now else target_dt + timedelta(days=1)
+        else:
+            target_dt += timedelta(days=1)
     sec = int(target_dt.timestamp() - now.timestamp())
 
     return {

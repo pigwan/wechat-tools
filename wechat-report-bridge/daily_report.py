@@ -3,7 +3,7 @@
 用法：
     python daily_report.py                 # 今天
     python daily_report.py 2026-11-05     # 指定日期
-    python daily_report.py 2026-11-05 --chat-id 58507398167@chatroom
+    python daily_report.py 2026-11-05 --chat-id 你的群ID@chatroom
 """
 from __future__ import annotations
 

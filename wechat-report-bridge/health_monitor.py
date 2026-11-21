@@ -62,6 +62,10 @@ os.environ.setdefault("NO_PROXY", "127.0.0.1,localhost")
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 log = get_logger("Monitor")
 _MUTEX_HANDLE = None  # 必须保持引用，否则互斥体会被释放
+# 本进程常以 pythonw + DETACHED_PROCESS 无窗口运行。Windows 下这种父进程起子进程时，
+# 系统会临时新建一个控制台窗口——每轮巡检的 tasklist 就会在桌面闪一个黑框。
+# 显式给子进程 CREATE_NO_WINDOW，任务照跑，窗口不再闪（父进程自己的窗口不受影响）。
+_CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 # 独立心跳文件：只由巡检进程写。不能拿 alert_state.json 的 updated 判断存活，
 # 因为守护直报也会刷新它，会把「巡检已死」误判成「巡检还活着」。
 HEARTBEAT_FILE = ROOT / "alert_heartbeat.json"
@@ -143,7 +147,8 @@ def process_running(image: str) -> bool:
     try:
         out = subprocess.run(
             ["tasklist", "/FI", "IMAGENAME eq %s" % image, "/FO", "CSV", "/NH"],
-            capture_output=True, text=True, errors="replace", timeout=10).stdout or ""
+            capture_output=True, text=True, errors="replace", timeout=10,
+            creationflags=_CREATE_NO_WINDOW).stdout or ""
         return image.lower() in out.lower()
     except (OSError, subprocess.SubprocessError):
         return False

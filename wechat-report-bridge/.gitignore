@@ -20,5 +20,22 @@ alert.local.json
 alert_state.json
 alert.log
 alert_monitor.lock
+brain/llm.local.json
+brain/config.local.json
+brain/groups.local.json
+brain/runtime.local.json
+brain/persona.local.json
+brain/tuning.local.json
+brain/brain_state.sqlite3
+brain/brain.log
+brain/brain.log.*
 report.md
 logs/
+
+# 文章推送的本地配置与数据
+admin/article_push.local.json
+admin/article_push.sqlite3
+admin/.thumbs/
+admin/social_data.json
+admin/social_status.json
+alert_heartbeat.json

@@ -4,11 +4,11 @@
 自定义微信号 / 唯一匹配的昵称，会自动解析成 admin/chats.auto.json 里的 ID。
 
 用法：
-    python send.py 58507398167@chatroom "今天的日报已生成"
+    python send.py 你的群ID@chatroom "今天的日报已生成"
     python send.py wxid_xxxxxxxx "请查收" --at wxid_a,wxid_b
     python send.py pigwan "发给我自己"
     python send.py 婷婷 "晚上好"
-    python send.py 58507398167@chatroom --file reports/2026-11-06.md
+    python send.py 你的群ID@chatroom --file reports/2026-11-06.md
 
 原理：把消息写进 send_outbox.sqlite3，由 helper 内运行的 report_bridge
 插件领取并调用 ctx.send_text 发送。不新开端口、不重启微信。

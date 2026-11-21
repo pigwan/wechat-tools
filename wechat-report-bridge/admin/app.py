@@ -25,6 +25,8 @@ token，但仅用于程序化调用（脚本、外部集成），页面不再提
     admin/social_data.json                             群成员 / 好友 / 朋友圈（只读微信内存）
     admin/social_status.json                           社交资料同步状态
     admin/announcements.local.json                     手工维护的群公告
+    admin/article_push.local.json                      公众号文章链接推送配置（网页可改）
+    admin/article_push.sqlite3                         推送基线 / 待重试 / 日志
 """
 from __future__ import annotations
 
@@ -34,6 +36,7 @@ import hashlib
 import hmac
 import json
 import os
+import random
 import re
 import secrets
 import sqlite3
@@ -43,7 +46,7 @@ import threading
 import time
 import urllib.request
 import webbrowser
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
@@ -51,9 +54,15 @@ from urllib.parse import parse_qs, quote, urlparse
 ROOT = Path(__file__).resolve().parent
 BRIDGE = ROOT.parent
 WORKSPACE = BRIDGE.parent
+# 后台定时同步可能在无控制台的进程里跑（pythonw / 统一控制台拉起的 detached 子进程）。
+# Windows 下这种父进程用 subprocess 起 python 子进程会闪一个命令行黑窗；
+# 显式屏蔽子进程控制台即可，父进程自己有窗口时也不会被影响。
+_CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 SERVER = BRIDGE / "server"
 sys.path.insert(0, str(SERVER))
 from report import build_stats, to_markdown  # noqa: E402
+sys.path.insert(0, str(ROOT))
+import article_push  # noqa: E402
 
 HELPER = WORKSPACE / "vendor" / "helper-main"
 DB_PATH = Path(os.environ.get("BRIDGE_DB", str(SERVER / "messages.sqlite3")))
@@ -62,6 +71,15 @@ OUTBOX_DB = Path(os.environ.get("BRIDGE_OUTBOX", str(HELPER / ".runtime" / "send
 BOT_CONFIG = HELPER / "bot_config.json"
 LOCAL_CONFIG = BRIDGE / "config.local.json"
 LOG_FILE = HELPER / "logs" / "bot.log"
+# 拟人大脑的私有 LLM 配置（api/key 由网页设置写入，不进公开模板、不进仓库）
+BRAIN_DIR = BRIDGE / "brain"
+BRAIN_LLM_CONFIG = BRAIN_DIR / "llm.local.json"
+BRAIN_GROUPS_CONFIG = BRAIN_DIR / "groups.local.json"
+BRAIN_RUNTIME_CONFIG = BRAIN_DIR / "runtime.local.json"
+BRAIN_PERSONA_CONFIG = BRAIN_DIR / "persona.local.json"
+BRAIN_TUNING_CONFIG = BRAIN_DIR / "tuning.local.json"
+BRAIN_STATE_DB = BRAIN_DIR / "brain_state.sqlite3"
+BRAIN_LOG_FILE = BRAIN_DIR / "brain.log"
 
 # 群名/头像优先级：手工覆盖 > 微信内存自动同步 > helper 的 group_names。
 CHAT_META_FILE = ROOT / "chats.local.json"
@@ -455,7 +473,8 @@ def run_sync_once():
     try:
         subprocess.run([sys.executable, str(SYNC_SCRIPT), "--json"],
                        cwd=str(WORKSPACE), capture_output=True,
-                       timeout=SYNC_TIMEOUT, check=False)
+                       timeout=SYNC_TIMEOUT, check=False,
+                       creationflags=_CREATE_NO_WINDOW)
         return True
     except (OSError, subprocess.SubprocessError):
         return False
@@ -671,8 +690,113 @@ def social_moments_payload():
             "truncated": bool(moments.get("truncated"))}
 
 
+# ---------------------------------------------------------------------------
+# 微信重新登录二维码：复用 helper 自带控制器，只附加到本机已运行的微信进程。
+# 不启动新微信、不保存登录凭据；二维码仅在内存中生成，经已鉴权的隧道展示。
+# ---------------------------------------------------------------------------
+HELPER_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..",
+                                           "vendor", "helper-main"))
+_login_manager = None
+_login_lock = threading.Lock()
+_login_state = {"attempt_id": "", "pid": 0, "started_at": 0.0}
+
+
+def _login_controller():
+    global _login_manager
+    with _login_lock:
+        if _login_manager is None:
+            if HELPER_ROOT not in sys.path:
+                sys.path.insert(0, HELPER_ROOT)
+            from wxbot_framework.wechat_login import WechatLoginManager
+            _login_manager = WechatLoginManager(HELPER_ROOT)
+        return _login_manager
+
+
+def _wechat_main_pid():
+    """找微信主进程；带 --type= 的是 wxocr / xplayer 等子进程，要排除。"""
+    try:
+        import psutil
+    except ImportError:
+        return 0
+    pids = []
+    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+        try:
+            if (proc.info.get("name") or "").lower() != "weixin.exe":
+                continue
+            cmd = proc.info.get("cmdline") or []
+            if any(str(x).startswith("--type=") for x in cmd):
+                continue
+            pids.append(proc.info["pid"])
+        except (psutil.NoSuchProcess, psutil.AccessDenied, TypeError):
+            continue
+    return min(pids) if pids else 0
+
+
+def wechat_login_attach():
+    """附加到当前微信进程，开始等待登录二维码。"""
+    mgr = _login_controller()
+    from wxbot_framework.panel_common import PanelError
+    pid = _wechat_main_pid()
+    if not pid:
+        return {"ok": False, "error": "未找到微信主进程，请确认电脑微信正在运行"}
+    with _login_lock:
+        old = _login_state.get("attempt_id")
+        if old:
+            try:
+                mgr.cancel({"attempt_id": old})
+            except Exception:
+                pass
+        try:
+            result = mgr.attach({"pid": pid})
+        except PanelError as error:
+            return {"ok": False, "error": str(error)}
+        except Exception as error:
+            return {"ok": False, "error": "附加微信进程失败：%s" % error}
+        _login_state.update({"attempt_id": result["attempt_id"], "pid": pid,
+                             "started_at": time.time()})
+    return {"ok": True, "attempt_id": result["attempt_id"], "pid": pid,
+            "status": result.get("status") or "waiting"}
+
+
+def wechat_login_status(attempt_id):
+    """轮询二维码 / 登录结果，二维码以 base64 PNG 返回。"""
+    from wxbot_framework.panel_common import PanelError
+    if not attempt_id:
+        return {"ok": False, "error": "缺少 attempt_id"}
+    try:
+        result = _login_controller().status(attempt_id)
+    except PanelError as error:
+        return {"ok": False, "error": str(error)}
+    except Exception as error:
+        return {"ok": False, "error": "读取二维码失败：%s" % error}
+    data = {"status": result.get("status"), "pid": result.get("pid"),
+            "wxid": result.get("wxid") or ""}
+    if result.get("qrcode_base64"):
+        data["qrcode_base64"] = result["qrcode_base64"]
+    return {"ok": True, "data": data}
+
+
+def wechat_login_cancel(attempt_id):
+    if not attempt_id:
+        return {"ok": False, "error": "缺少 attempt_id"}
+    from wxbot_framework.panel_common import PanelError
+    try:
+        result = _login_controller().cancel({"attempt_id": attempt_id})
+    except PanelError as error:
+        return {"ok": False, "error": str(error)}
+    except Exception as error:
+        return {"ok": False, "error": str(error)}
+    with _login_lock:
+        if _login_state.get("attempt_id") == attempt_id:
+            _login_state["attempt_id"] = ""
+    return {"ok": True, "data": result}
+
+
 def social_state_payload():
     data = social_data()
+    # 微信在线状态来自独立守护进程写的 wechat_health.json，而不是 social_status.json
+    # （后者只记录同步结果，根本没有 online 字段——这就是设置页一度恒显「离线」的原因）。
+    health = wechat_health()
     return {
         "status": social_status(),
         "stats": data.get("stats") or {},
@@ -681,6 +805,11 @@ def social_state_payload():
         "updated_at": data.get("updated_at") or "",
         "capabilities": SOCIAL_CAPABILITIES,
         "script_exists": SOCIAL_SCRIPT.is_file(),
+        "online": bool(health.get("online")),
+        "wechat_detail": health.get("detail") or "",
+        "wechat_last_online": health.get("last_online"),
+        "wechat_offline_since": health.get("offline_since"),
+        "guard_alive": bool(health.get("guard_alive")),
     }
 
 
@@ -751,7 +880,8 @@ def run_social_once(only="auto"):
     try:
         subprocess.run([sys.executable, str(SOCIAL_SCRIPT), "--only", only, "--json"],
                        cwd=str(WORKSPACE), capture_output=True,
-                       timeout=SOCIAL_TIMEOUT, check=False)
+                       timeout=SOCIAL_TIMEOUT, check=False,
+                       creationflags=_CREATE_NO_WINDOW)
         return True
     except (OSError, subprocess.SubprocessError):
         return False
@@ -768,6 +898,43 @@ def social_loop():
         except Exception:
             pass
         time.sleep(SOCIAL_INTERVAL)
+
+
+def moments_random_loop():
+    """早 7:00 ~ 晚 23:00（不含 23:00 之后），每小时随机 3-10 次只读刷新朋友圈缓存。
+
+    实现：始终把时间对齐到整点块 [block_start, block_start+1h)，在该块内随机撒 3-10 个
+    触发点；窗口外（23:00~次日 7:00）则睡到下一个窗口起点。落在过去的点直接丢弃，
+    避免启动时瞬间连发。触发时若已有同步在进行（_social_lock 占用）则跳过，不堆积。
+    """
+    WINDOW_START_HOUR = 7
+    WINDOW_END_HOUR = 23          # 闭区间起点：>=23 视为窗口外
+    while True:
+        now = datetime.now()
+        hour_start = now.replace(minute=0, second=0, microsecond=0)
+        if now.hour < WINDOW_START_HOUR:
+            block_start = hour_start.replace(hour=WINDOW_START_HOUR)
+        elif now.hour >= WINDOW_END_HOUR:
+            block_start = (hour_start + timedelta(days=1)).replace(hour=WINDOW_START_HOUR)
+        else:
+            # 窗口内：接近整点末尾（>=55 分）直接滚到下一小时块，避免越界到 23:00 后
+            block_start = hour_start if now.minute < 55 else hour_start + timedelta(hours=1)
+            if block_start.hour >= WINDOW_END_HOUR:   # 例如 22:55 -> 23:00 块，越界
+                block_start = (hour_start + timedelta(days=1)).replace(hour=WINDOW_START_HOUR)
+        # 在该整点块内随机撒点；有效区间取 [max(block_start, now), block_start+1h)
+        lo = max(block_start.timestamp(), time.time())
+        hi = block_start.timestamp() + 3600.0
+        if hi <= lo:
+            continue
+        n = random.randint(3, 10)
+        points = sorted(random.uniform(lo, hi) for _ in range(n))
+        for p in points:
+            delta = p - time.time()
+            if delta > 0:
+                time.sleep(delta)
+            if _social_lock.locked():
+                continue
+            run_social_once("moments")
 
 
 def chat_display(chat_id, meta=None):
@@ -825,8 +992,8 @@ def resolve_chat_id(chat_id, auto=None):
 
     支持三类输入：
       1. 精确会话 ID：12345@chatroom / wxid_xxx / gh_xxx / 自定义微信号 pigwan
-      2. 自定义微信号（Alias）：例如 PigwanAsst -> wxid_5gze617a8utg22
-      3. 唯一命中的显示名 / 微信昵称：例如 婷婷 -> wxid_f75p1s81dgr812
+      2. 自定义微信号（Alias）：例如 PigwanAsst -> wxid_你的助手号
+      3. 唯一命中的显示名 / 微信昵称：例如 婷婷 -> wxid_示例好友
     未知但格式合法的 ID 也放行（刚加的好友可能还没同步进缓存）。
 
     返回 (会话ID, 说明字典)；无法解析时返回 (None, 错误说明)。
@@ -1418,7 +1585,7 @@ def _merge_feed_duplicates(items):
 
 
 def query_feed(day="", chat_id="", keyword="", kind="", source="",
-               limit=50, offset=0):
+               limit=50, offset=0, before="", before_key=""):
     """把三类数据合成一条按时间倒序的消息流。
 
     kind   内容类型：message / link / official，或其细分 link:card、official:push …
@@ -1563,6 +1730,17 @@ def query_feed(day="", chat_id="", keyword="", kind="", source="",
         return True
 
     unified = [item for item in unified if matched(item)]
+    if before:
+        # 游标翻页：按 (时间, thread key) 字典序严格早于游标，同一秒内多条也能续传。
+        # key 格式与 /api/thread 保持一致（feed:kind:item_key）。
+        cursor_stamp = thread_stamp(before)
+        if cursor_stamp:
+            cutoff_key = str(before_key or "")
+            unified = [
+                item for item in unified
+                if (thread_stamp(item.get("received_at_raw")),
+                    "feed:" + str(item.get("id") or "")) < (cursor_stamp, cutoff_key)
+            ]
     unified.sort(key=lambda item: (item["received_at_raw"], item["item_key"]),
                  reverse=True)
     total = len(unified)
@@ -1608,6 +1786,22 @@ def self_sender_ids(auto=None):
     if account:
         ids |= _names(auto.get(account))
     return sorted(ids)
+
+
+def bot_sender_id(auto=None):
+    """当前登录微信自己的 wxid，用于给「己方已发」消息补 sender_id。
+
+    优先取守护进程写出的登录账号；没有时退回 chats.auto.json 中 is_self 的
+    wxid；都拿不到时返回空串，前端仍可用 self/direction 判定方向。
+    """
+    account = str((wechat_health() or {}).get("account") or "").strip()
+    if account:
+        return account
+    auto = load_auto_chats() if auto is None else auto
+    for cid, row in auto.items():
+        if isinstance(row, dict) and row.get("is_self") and str(cid).startswith("wxid_"):
+            return str(cid)
+    return ""
 
 
 def query_conversations(day="all", keyword="", source="", limit=200):
@@ -2215,27 +2409,52 @@ def thread_stamp(value):
     return text[:19] if len(text) >= 19 else text
 
 
-def chat_thread_payload(raw_chat, limit=120):
+def thread_sort_key(item):
+    """时间线排序：(秒级时间, 来源, 数字序号, key)。
+
+    同一秒里收到消息（feed:*）排在已发消息（out:*）之前；
+    out:* 的序号按数字比较，避免 out:9 / out:12 被字符串顺序颠倒。
+    """
+    stamp = str(item.get("ts") or "")
+    key = str(item.get("key") or "")
+    if key.startswith("out:"):
+        try:
+            return (stamp, 1, int(key[4:]), key)
+        except ValueError:
+            pass
+    return (stamp, 0, 0, key)
+
+
+def chat_thread_payload(raw_chat, limit=120, before="", before_key=""):
     """聊天窗口的只读聚合视图：接收消息 + 己方已发消息合成一条时间线。
 
     插件配置为 include_self=false，/api/send 发出的消息只落在 send_outbox.sqlite3，
     不会回流到 messages.sqlite3，因此必须单独并入才有「我」的绿色气泡。
     不修改任何表结构，也不触碰 helper 插件。
+
+    所有 item 统一字段（方便外部系统做长期记忆）：
+      msg_key / text / received_at / sender_id —— 去重、正文、排序、发送者
+      self(bool) / is_self(bool) / direction("in"|"out") —— 方向判定
+    游标翻页用 before=YYYY-MM-DD HH:MM:SS（可选 before_key 处理同秒并列）；
+    has_more=true 时把 next_before / next_before_key 原样传回即可继续往更早翻。
     """
     chat_id, resolved = resolve_chat_id(raw_chat)
     if not chat_id:
         return {"error": str(resolved), "chat_id": str(raw_chat or ""),
                 "items": [], "total": 0, "has_more": False}
     try:
-        limit = min(max(int(limit), 1), 200)
+        limit = min(max(int(limit), 1), 1000)
     except (TypeError, ValueError):
         limit = 120
+    cursor = thread_stamp(before) if before else ""
+    fetch_n = limit + 1   # 多取一条用于判断 has_more
 
     auto = load_auto_chats()
     meta = load_chat_meta()
     source_kind = kind_of(chat_id, auto)
     chat_avatar = avatar_for(chat_id, meta)
     self_ids = {str(x).casefold() for x in self_sender_ids(auto) if str(x).strip()}
+    bot_wxid = bot_sender_id(auto)
     avatars = social_avatar_index(social_data())
     self_avatar = ""
     for cid, row in auto.items():
@@ -2245,7 +2464,8 @@ def chat_thread_payload(raw_chat, limit=120):
                 break
 
     items = []
-    feed = query_feed("all", chat_id, "", "", "", limit, 0)
+    feed = query_feed("all", chat_id, "", "", "", fetch_n, 0,
+                      cursor, before_key)
     feed_total = int(feed.get("total") or 0)
     for row in feed.get("items") or []:
         sid = str(row.get("sender_id") or "").casefold()
@@ -2254,17 +2474,24 @@ def chat_thread_payload(raw_chat, limit=120):
         wxid = str(row.get("sender_id") or "")
         fallback = self_avatar if is_self else (
             "" if source_kind == "group" else chat_avatar)
+        stamp = thread_stamp(row.get("received_at_raw"))
+        body = str(row.get("body") or "")
         items.append({
             "key": "feed:" + str(row.get("id") or ""),
-            "ts": thread_stamp(row.get("received_at_raw")),
+            "msg_key": str(row.get("item_key") or ""),
+            "ts": stamp,
+            "received_at": stamp,
             "time": fmt_time(row.get("received_at_raw")),
             "self": is_self,
+            "is_self": is_self,
+            "direction": "out" if is_self else "in",
             "sender": row.get("sender_label") or row.get("chat_name") or "",
             "sender_id": wxid,
             "avatar_url": avatars.get(wxid) or fallback,
             "kind": row.get("kind") or "message",
             "kind_label": row.get("kind_label") or "",
-            "body": str(row.get("body") or ""),
+            "body": body,
+            "text": body,
             "title": str(row.get("title") or ""),
             "url": str(row.get("url") or ""),
             "description": str(row.get("description") or ""),
@@ -2279,48 +2506,81 @@ def chat_thread_payload(raw_chat, limit=120):
     conn = connect(OUTBOX_DB)
     if conn is not None:
         try:
-            sent_total = int(conn.execute(
-                "SELECT COUNT(*) FROM outbox WHERE chat_id = ?", (chat_id,)
-            ).fetchone()[0] or 0)
-            rows = conn.execute(
-                "SELECT id, text, status, error, created_at FROM outbox "
-                "WHERE chat_id = ? ORDER BY id DESC LIMIT ?",
-                (chat_id, limit)).fetchall()
+            # 已发消息的 key 是 out:<id>：同一秒内按 id 做同样严格的游标比较。
+            outbox_where = "chat_id = ?"
+            outbox_args = [chat_id]
+            if cursor:
+                cutoff_id = None
+                if str(before_key or "").startswith("out:"):
+                    try:
+                        cutoff_id = int(str(before_key)[4:])
+                    except ValueError:
+                        cutoff_id = None
+                if cutoff_id is None:
+                    outbox_where += " AND substr(created_at, 1, 19) < ?"
+                    outbox_args.append(cursor)
+                else:
+                    outbox_where += (" AND (substr(created_at, 1, 19) < ? OR "
+                                     "(substr(created_at, 1, 19) = ? AND id < ?))")
+                    outbox_args.extend([cursor, cursor, cutoff_id])
+            count_sql = "SELECT COUNT(*) FROM outbox WHERE " + outbox_where
+            count_args = list(outbox_args)
+            sql = ("SELECT id, text, status, error, created_at FROM outbox WHERE "
+                   + outbox_where)
+            args = list(outbox_args)
+            sent_total = int(conn.execute(count_sql, count_args).fetchone()[0] or 0)
+            sql += " ORDER BY id DESC LIMIT ?"
+            args.append(fetch_n)
+            rows = conn.execute(sql, args).fetchall()
             for row in rows:
                 item = dict(row)
-                stamp = str(item.get("created_at") or "")
+                stamp = thread_stamp(item.get("created_at"))
+                rid = int(item.get("id") or 0)
+                text = str(item.get("text") or "")
                 items.append({
-                    "key": "out:%d" % int(item.get("id") or 0),
-                    "ts": thread_stamp(stamp),
-                    "time": fmt_time(stamp),
+                    "key": "out:%d" % rid,
+                    "msg_key": "outbox:%d" % rid,
+                    "ts": stamp,
+                    "received_at": stamp,
+                    "time": fmt_time(item.get("created_at")),
                     "self": True,
+                    "is_self": True,
+                    "direction": "out",
                     "sender": "我",
-                    "sender_id": "",
+                    "sender_id": bot_wxid,
                     "avatar_url": self_avatar,
                     "kind": "text",
                     "kind_label": "已发消息",
-                    "body": str(item.get("text") or ""),
+                    "body": text,
+                    "text": text,
                     "title": "", "url": "", "description": "", "cover_url": "",
                     "image_filename": "", "image_width": 0, "image_height": 0,
                     "status": int(item.get("status") or 0),
                     "error": str(item.get("error") or ""),
-                    "rid": int(item.get("id") or 0),
+                    "rid": rid,
                 })
         except (sqlite3.OperationalError, IndexError, TypeError, ValueError):
             pass
         finally:
             conn.close()
 
-    items.sort(key=lambda x: (x["ts"], x["key"]))
-    total = feed_total + sent_total
+    # 两个数据源都已按 (时间, key) 严格过滤，这里只做合并排序。
+    items.sort(key=thread_sort_key)
+    has_more = len(items) > limit
     page = items[-limit:]
+    next_before = str(page[0].get("ts") or "") if has_more and page else ""
+    next_before_key = str(page[0].get("key") or "") if has_more and page else ""
+    total = feed_total + sent_total
     return {
         "chat_id": chat_id,
         "chat_name": chat_display(chat_id, meta),
         "chat_avatar": chat_avatar,
         "source_kind": source_kind,
         "resolver": resolved,
-        "count": len(page), "total": total, "has_more": total > len(page),
+        "count": len(page), "total": total,
+        "has_more": has_more,
+        "next_before": next_before,
+        "next_before_key": next_before_key,
         "limit": limit, "items": page,
         "self_ids": sorted(self_ids), "self_avatar": self_avatar,
         "send_enabled": not READONLY_MODE,
@@ -2381,6 +2641,599 @@ def save_config(payload):
     BOT_CONFIG.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n",
                           encoding="utf-8")
     return changed
+
+
+def brain_llm_payload():
+    """给网页设置面板用：key 只回显是否配置与末 4 位，绝不回传完整密钥。"""
+    cfg = {}
+    if BRAIN_LLM_CONFIG.is_file():
+        try:
+            cfg = read_json(BRAIN_LLM_CONFIG)
+        except (OSError, ValueError):
+            cfg = {}
+    key = str(cfg.get("api_key", "") or "")
+    return {
+        "base_url": str(cfg.get("base_url", "https://api.deepseek.com") or "https://api.deepseek.com"),
+        "model": str(cfg.get("model", "deepseek-flash") or "deepseek-flash"),
+        "timeout_seconds": cfg.get("timeout_seconds", 20),
+        "max_tokens": cfg.get("max_tokens", 512),
+        "configured": bool(key and "CHANGE" not in key.upper()),
+        "key_hint": ("…" + key[-4:]) if key else "",
+    }
+
+
+def brain_llm_test():
+    """用当前大脑 LLM 配置发一次极简请求，验证连通。返回 (ok, 说明)。"""
+    cfg = {}
+    if BRAIN_LLM_CONFIG.is_file():
+        try:
+            cfg = read_json(BRAIN_LLM_CONFIG)
+        except (OSError, ValueError):
+            pass
+    key = str(cfg.get("api_key", "") or "")
+    if not key or "CHANGE" in key.upper():
+        return False, "api_key 未配置，请先保存密钥"
+    import urllib.request as _urlreq
+    base = str(cfg.get("base_url", "https://api.deepseek.com")).rstrip("/")
+    endpoint = base if base.endswith("/chat/completions") else base + "/chat/completions"
+    payload = {"model": str(cfg.get("model", "deepseek-flash")),
+               "messages": [{"role": "user", "content": "只回复两个字：收到"}],
+               "max_tokens": 16, "stream": False}
+    if payload["model"] in ("deepseek-chat", "deepseek-flash", "deepseek-v4-pro"):
+        payload["thinking"] = {"type": "disabled"}
+    try:
+        req = _urlreq.Request(
+            endpoint, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
+            method="POST")
+        with _urlreq.urlopen(req, timeout=float(cfg.get("timeout_seconds", 20))) as resp:
+            result = json.loads(resp.read(512 * 1024))
+        content = result["choices"][0]["message"].get("content") or ""
+        return True, "连通正常：%s" % str(content).strip()[:30]
+    except Exception as exc:
+        return False, "连接失败：%s" % str(exc)[:120]
+
+
+def save_brain_llm(payload):
+    """保存大脑 LLM 配置。api_key 留空表示沿用已存值，不覆盖。"""
+    if not isinstance(payload, dict):
+        raise ValueError("配置格式无效")
+    current = {}
+    if BRAIN_LLM_CONFIG.is_file():
+        try:
+            current = read_json(BRAIN_LLM_CONFIG)
+        except (OSError, ValueError):
+            current = {}
+    allowed = ("base_url", "model", "timeout_seconds", "max_tokens")
+    for field in allowed:
+        if field in payload:
+            current[field] = payload[field]
+    # base_url 必须是 http(s) 地址
+    base = str(current.get("base_url", "https://api.deepseek.com")).strip()
+    if not (base.startswith("https://") or base.startswith("http://127.0.0.1")
+            or base.startswith("http://localhost")):
+        raise ValueError("base_url 必须是 https 地址或本机回环地址")
+    current["base_url"] = base.rstrip("/")
+    if not str(current.get("model", "")).strip():
+        raise ValueError("model 不能为空")
+    current["model"] = str(current["model"]).strip()
+    for num_field, low, high in (("timeout_seconds", 3, 300), ("max_tokens", 64, 32768)):
+        value = current.get(num_field, low)
+        if type(value) is not int or not low <= value <= high:
+            raise ValueError("%s 应为 %d-%d 的整数" % (num_field, low, high))
+        current[num_field] = value
+    new_key = str(payload.get("api_key", "") or "").strip()
+    if new_key and payload.get("api_key_clear") is not True:
+        # 留空不覆盖；显式传入才更新。不在这里做格式强校验（兼容第三方网关）。
+        current["api_key"] = new_key
+    elif payload.get("api_key_clear") is True:
+        current["api_key"] = ""
+    BRAIN_DIR.mkdir(parents=True, exist_ok=True)
+    BRAIN_LLM_CONFIG.write_text(json.dumps(current, ensure_ascii=False, indent=2) + "\n",
+                                encoding="utf-8")
+    return ["base_url", "model", "timeout_seconds", "max_tokens"] + (["api_key"] if new_key else [])
+
+
+def brain_groups_payload():
+    """大脑群聊白名单：所有可选群 + 网页勾选状态 + 当前生效来源。"""
+    # 网页勾选的白名单
+    selected, names, source = [], {}, "config"
+    if BRAIN_GROUPS_CONFIG.is_file():
+        try:
+            data = read_json(BRAIN_GROUPS_CONFIG)
+            selected = [str(x) for x in data.get("enabled", []) if str(x).strip()]
+            raw_names = data.get("names", {})
+            names = raw_names if isinstance(raw_names, dict) else {}
+            source = "web"
+        except (OSError, ValueError):
+            pass
+    # 网页没设置过时，config.local.json 里 enabled 的群作为当前生效值展示
+    config_enabled = []
+    if source != "web":
+        brain_cfg = BRAIN_DIR / "config.local.json"
+        if brain_cfg.is_file():
+            try:
+                c = read_json(brain_cfg)
+                for cid, gcfg in (c.get("groups") or {}).items():
+                    if isinstance(gcfg, dict) and gcfg.get("enabled"):
+                        config_enabled.append(cid)
+                        if gcfg.get("name"):
+                            names[cid] = gcfg["name"]
+            except (OSError, ValueError):
+                pass
+
+    all_chats = [c for c in query_chats() if c.get("is_group")]
+    # 白名单里可能含消息库还没有的群，补一条占位，避免勾选后消失
+    known = {c["chat_id"] for c in all_chats}
+    effective = set(selected) if source == "web" else set(config_enabled)
+    for cid in effective:
+        if cid not in known:
+            all_chats.append({"chat_id": cid, "n": 0, "last_at": "",
+                              "name": names.get(cid, cid), "avatar_url": "",
+                              "is_group": True})
+    all_chats.sort(key=lambda c: (c["chat_id"] not in effective, -int(c.get("n") or 0)))
+    return {
+        "groups": [{"chat_id": c["chat_id"], "name": c.get("name") or c["chat_id"],
+                    "n": c.get("n", 0), "last_at": c.get("last_at", ""),
+                    "enabled": c["chat_id"] in effective,
+                    "avatar_url": c.get("avatar_url", "")} for c in all_chats],
+        "selected": list(effective),
+        "source": source,
+        "total": len(all_chats),
+    }
+
+
+def save_brain_groups(payload):
+    """保存大脑群聊白名单。enabled 为空列表合法（表示不启用任何群）。"""
+    if not isinstance(payload, dict):
+        raise ValueError("配置格式无效")
+    enabled = payload.get("enabled", [])
+    if not isinstance(enabled, list):
+        raise ValueError("enabled 必须是列表")
+    cleaned = []
+    for cid in enabled:
+        cid = str(cid).strip()
+        if not cid:
+            continue
+        if not str(cid).endswith("@chatroom") or len(cid) < 10 or any(ch in cid for ch in " \r\n\t"):
+            raise ValueError("无效的群 ID：%s" % cid[:40])
+        cleaned.append(cid)
+    cleaned = list(dict.fromkeys(cleaned))[:200]
+    raw_names = payload.get("names", {})
+    names = {str(k): str(v) for k, v in raw_names.items()} if isinstance(raw_names, dict) else {}
+    data = {"enabled": cleaned, "names": names,
+            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    BRAIN_DIR.mkdir(parents=True, exist_ok=True)
+    BRAIN_GROUPS_CONFIG.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+                                   encoding="utf-8")
+    return cleaned
+
+
+def brain_engine_snapshot():
+    """大脑进程心跳快照（只读 meta，不依赖运行开关）。
+
+    状态条要在进页面第一眼就显示「进程死没死」，而决策日志是懒加载的，
+    所以这组字段随 /api/brain/runtime 一起返回，避免为一行状态多打一次日志接口。
+    """
+    engine = {"alive": False, "last_tick_ago": None, "last_tick_at": None,
+              "dry_run": None, "llm_mode": None, "cursor": 0}
+    conn = _brain_state_conn()
+    if conn is None:
+        return engine
+    try:
+        tick = conn.execute("SELECT value FROM meta WHERE key='last_tick'").fetchone()
+        dry = conn.execute("SELECT value FROM meta WHERE key='last_dry_run'").fetchone()
+        mode = conn.execute("SELECT value FROM meta WHERE key='last_llm_mode'").fetchone()
+        cur = conn.execute("SELECT value FROM meta WHERE key='cursor_rowid'").fetchone()
+        if tick and tick["value"]:
+            last = float(tick["value"])
+            ago = max(0.0, time.time() - last)
+            engine["alive"] = ago < 90
+            engine["last_tick_ago"] = int(ago)
+            engine["last_tick_at"] = datetime.fromtimestamp(last).strftime("%m-%d %H:%M:%S")
+        if dry and dry["value"] in ("0", "1"):
+            engine["dry_run"] = dry["value"] == "1"
+        if mode and mode["value"] in ("mock", "real"):
+            engine["llm_mode"] = mode["value"]
+        if cur and cur["value"]:
+            engine["cursor"] = int(cur["value"])
+    except (sqlite3.Error, ValueError):
+        pass
+    finally:
+        conn.close()
+    return engine
+
+
+def brain_runtime_payload():
+    """大脑运行开关：网页设置优先，未设置时回退 config.local.json 的值。"""
+    cfg = {}
+    brain_cfg = BRAIN_DIR / "config.local.json"
+    if brain_cfg.is_file():
+        try:
+            cfg = read_json(brain_cfg)
+        except (OSError, ValueError):
+            cfg = {}
+    source = "config"
+    if BRAIN_RUNTIME_CONFIG.is_file():
+        try:
+            runtime = read_json(BRAIN_RUNTIME_CONFIG)
+            for key in ("enabled", "dry_run", "dry_run_llm", "at_reply"):
+                if isinstance(runtime.get(key), bool):
+                    cfg[key] = runtime[key]
+            source = "web"
+        except (OSError, ValueError):
+            pass
+    enabled = bool(cfg.get("enabled", False))
+    engine = brain_engine_snapshot()
+    if not enabled:
+        engine["running_state"] = ("总开关已关闭（进程待机中）" if engine["alive"]
+                                   else "总开关已关闭")
+    else:
+        engine["running_state"] = "运行中" if engine["alive"] else "进程未启动"
+    return {"enabled": enabled,
+            "dry_run": bool(cfg.get("dry_run", True)),
+            "dry_run_llm": bool(cfg.get("dry_run_llm", True)),
+            "at_reply": bool(cfg.get("at_reply", True)),
+            "source": source,
+            "engine": engine}
+
+
+def save_brain_runtime(payload):
+    """保存大脑运行开关。只接受 enabled/dry_run/dry_run_llm/at_reply 四个布尔值。"""
+    if not isinstance(payload, dict):
+        raise ValueError("配置格式无效")
+    keys = ("enabled", "dry_run", "dry_run_llm", "at_reply")
+    data = {}
+    for key in keys:
+        if key in payload:
+            if type(payload[key]) is not bool:
+                raise ValueError("%s 必须是布尔值" % key)
+            data[key] = payload[key]
+    if not data:
+        raise ValueError("没有可保存的开关")
+    # 合并已有的其它开关，避免只存一部分
+    if BRAIN_RUNTIME_CONFIG.is_file():
+        try:
+            old = read_json(BRAIN_RUNTIME_CONFIG)
+            for key in keys:
+                if key not in data and isinstance(old.get(key), bool):
+                    data[key] = old[key]
+        except (OSError, ValueError):
+            pass
+    data["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    BRAIN_DIR.mkdir(parents=True, exist_ok=True)
+    BRAIN_RUNTIME_CONFIG.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+                                    encoding="utf-8")
+    return list(k for k in keys if k in data)
+
+
+# 人设：网页端可编辑「默认人设」与「按群覆盖」，写进 persona.local.json。
+# 这里只做存储，实际优先级在 brain.py 的 _apply_persona() 里生效。
+BRAIN_PERSONA_MAX = 2000
+BRAIN_DEFAULT_PERSONA = ("你是群里一个爱接话、说话简短口语化的成员。不要自称 AI、机器人或助手。"
+                         "回复控制在 1-3 句，偶尔用一两个语气词。")
+
+
+def brain_persona_payload():
+    """返回当前人设：默认人设 + 每个群的覆盖。网页没设置过就用 config 里的值兜底。"""
+    data = {}
+    if BRAIN_PERSONA_CONFIG.is_file():
+        try:
+            data = read_json(BRAIN_PERSONA_CONFIG)
+        except (OSError, ValueError):
+            data = {}
+    source = "web" if data else "config"
+    default = str(data.get("default") or "")
+    if not default:
+        # 网页没存过：用 config 的全局人设；没有就用内置模板。
+        # 不拿某个群自己的 persona 冒充默认——那会让人误以为整批群都按它说话。
+        brain_cfg = BRAIN_DIR / "config.local.json"
+        if brain_cfg.is_file():
+            try:
+                default = str(read_json(brain_cfg).get("global_persona") or "")
+            except (OSError, ValueError):
+                default = ""
+    if not default:
+        default = BRAIN_DEFAULT_PERSONA
+    groups = data.get("groups")
+    groups = {str(k): str(v) for k, v in groups.items() if str(v).strip()} \
+        if isinstance(groups, dict) else {}
+    return {"default": default, "groups": groups, "source": source,
+            "max_len": BRAIN_PERSONA_MAX,
+            "updated_at": str(data.get("updated_at") or "")}
+
+
+def save_brain_persona(payload):
+    """保存默认人设（传 default）或某群人设（传 chat_id + persona，空串表示清除覆盖）。"""
+    if not isinstance(payload, dict):
+        raise ValueError("配置格式无效")
+    data = {}
+    if BRAIN_PERSONA_CONFIG.is_file():
+        try:
+            data = read_json(BRAIN_PERSONA_CONFIG)
+        except (OSError, ValueError):
+            data = {}
+    if not isinstance(data, dict):
+        data = {}
+    groups = data.get("groups")
+    if not isinstance(groups, dict):
+        groups = {}
+    groups = {str(k): str(v) for k, v in groups.items()}
+    changed = []
+
+    if "default" in payload:
+        text = str(payload.get("default") or "").strip()
+        if len(text) > BRAIN_PERSONA_MAX:
+            raise ValueError("默认人设超过 %d 字，请精简" % BRAIN_PERSONA_MAX)
+        data["default"] = text
+        changed.append("default")
+
+    if "chat_id" in payload:
+        cid = str(payload.get("chat_id") or "").strip()
+        if not cid.endswith("@chatroom") or len(cid) < 10:
+            raise ValueError("无效的群 ID")
+        text = str(payload.get("persona") or "").strip()
+        if len(text) > BRAIN_PERSONA_MAX:
+            raise ValueError("该群人设超过 %d 字，请精简" % BRAIN_PERSONA_MAX)
+        if text:
+            groups[cid] = text
+        else:
+            groups.pop(cid, None)
+        changed.append(cid)
+
+    if not changed:
+        raise ValueError("没有可保存的内容")
+    data["groups"] = groups
+    data["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    BRAIN_DIR.mkdir(parents=True, exist_ok=True)
+    BRAIN_PERSONA_CONFIG.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+                                    encoding="utf-8")
+    return changed
+
+
+# 节奏参数：主动接话概率 / 冷却秒数 / 10 分钟上限。存 tuning.local.json，brain 热加载后覆盖所有群。
+BRAIN_TUNING_LIMITS = {
+    "reply_probability": (0.0, 1.0),
+    "cooldown_seconds": (0, 86400),
+    "max_replies_per_10min": (1, 1000000),
+    # 跟进窗口：接上一句后，窗口内算「同一段对话」，用更高的概率继续跟
+    "follow_window_seconds": (0, 3600),
+    "follow_probability": (0.0, 1.0),
+    "follow_max_turns": (1, 20),
+    "follow_cooldown_seconds": (0, 600),
+}
+BRAIN_TUNING_DEFAULTS = {"reply_probability": 0.28, "cooldown_seconds": 90,
+                         "max_replies_per_10min": 6,
+                         "follow_window_seconds": 180, "follow_probability": 0.85,
+                         "follow_max_turns": 4, "follow_cooldown_seconds": 6}
+BRAIN_TUNING_LABELS = {"reply_probability": "主动接话概率",
+                       "cooldown_seconds": "冷却秒数",
+                       "max_replies_per_10min": "10 分钟上限",
+                       "follow_window_seconds": "跟进窗口（秒）",
+                       "follow_probability": "跟进时的接话概率",
+                       "follow_max_turns": "一段对话最多连说几句",
+                       "follow_cooldown_seconds": "跟进冷却（秒）"}
+BRAIN_TUNING_FLOAT_KEYS = {"reply_probability", "follow_probability"}
+
+
+def _brain_group_template():
+    """从 config.local.json 取一份群参数作为兜底（网页没存过 tuning 时显示的真实值）。"""
+    cfg_path = BRAIN_DIR / "config.local.json"
+    template = {}
+    try:
+        cfg = read_json(cfg_path) if cfg_path.is_file() else {}
+    except (OSError, ValueError):
+        cfg = {}
+    groups = cfg.get("groups") if isinstance(cfg, dict) else None
+    if isinstance(groups, dict):
+        for gcfg in groups.values():
+            if isinstance(gcfg, dict) and any(k in gcfg for k in BRAIN_TUNING_LIMITS):
+                template = gcfg
+                break
+    return template
+
+
+def brain_tuning_payload():
+    data = {}
+    if BRAIN_TUNING_CONFIG.is_file():
+        try:
+            data = read_json(BRAIN_TUNING_CONFIG)
+        except (OSError, ValueError):
+            data = {}
+    source = "web" if data else "config"
+    template = _brain_group_template()
+    values = {}
+    for key, default in BRAIN_TUNING_DEFAULTS.items():
+        raw = data.get(key) if isinstance(data, dict) else None
+        if not isinstance(raw, (int, float)) or isinstance(raw, bool):
+            raw = template.get(key, default)
+        values[key] = raw
+    return {"values": values, "source": source, "defaults": BRAIN_TUNING_DEFAULTS,
+            "limits": {k: list(v) for k, v in BRAIN_TUNING_LIMITS.items()},
+            "updated_at": str((data or {}).get("updated_at") or "")}
+
+
+def save_brain_tuning(payload):
+    if not isinstance(payload, dict):
+        raise ValueError("配置格式无效")
+    data = {}
+    if BRAIN_TUNING_CONFIG.is_file():
+        try:
+            old = read_json(BRAIN_TUNING_CONFIG)
+            if isinstance(old, dict):
+                data = {k: old[k] for k in BRAIN_TUNING_LIMITS if k in old}
+        except (OSError, ValueError):
+            data = {}
+    changed = []
+    for key, (lo, hi) in BRAIN_TUNING_LIMITS.items():
+        if key not in payload:
+            continue
+        label = BRAIN_TUNING_LABELS.get(key, key)
+        raw = payload[key]
+        if isinstance(raw, str):
+            try:
+                raw = float(raw.strip())
+            except ValueError:
+                raise ValueError("%s 必须是数字" % label)
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            raise ValueError("%s 必须是数字" % label)
+        if raw != raw or raw in (float("inf"), float("-inf")):
+            raise ValueError("%s 必须是有效数字" % label)
+        if raw < lo or raw > hi:
+            shown = ("%d" % int(raw)) if float(raw).is_integer() else ("%g" % raw)
+            raise ValueError("%s要填 %s ~ %s 之间的数（你填的是 %s）"
+                             % (label, lo, hi, shown))
+        data[key] = (round(float(raw), 3) if key in BRAIN_TUNING_FLOAT_KEYS
+                     else int(raw))
+        changed.append(key)
+    if not changed:
+        raise ValueError("没有可保存的参数：请刷新页面后重试")
+    data["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    BRAIN_DIR.mkdir(parents=True, exist_ok=True)
+    BRAIN_TUNING_CONFIG.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+                                   encoding="utf-8")
+    return changed
+
+
+BRAIN_DECISION_LABELS = {
+    "at_reply": "被@回复",
+    "trigger": "关键词回复",
+    "probability": "概率插话",
+    "dry_run": "演练回复",
+    "skip": "跳过",
+    "quiet_hours": "安静时段",
+    "cooldown": "冷却中",
+    "rate_limit": "超频限制",
+}
+
+
+def _brain_state_conn():
+    """打开大脑状态库（决策/记忆/心跳都在这里）；库不存在时返回 None。"""
+    if not BRAIN_STATE_DB.is_file():
+        return None
+    conn = sqlite3.connect(str(BRAIN_STATE_DB), timeout=5)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def brain_logs_payload(limit=100, chat_id=""):
+    """拟人大脑的决策日志：每条消息「回没回、为什么」，外加运行心跳。"""
+    limit = max(1, min(int(limit or 100), 500))
+    chat_id = str(chat_id or "")
+    meta = load_chat_meta()
+    logs, by_decision = [], {}
+    total = matched = 0
+    engine = {"alive": False, "last_tick_ago": None, "last_tick_at": None,
+              "dry_run": None, "llm_mode": None, "cursor": 0, "running_state": "未知"}
+    conn = _brain_state_conn()
+    if conn is not None:
+        try:
+            total = conn.execute("SELECT COUNT(*) FROM decisions").fetchone()[0]
+            where, args = "", []
+            if chat_id:
+                where, args = " WHERE chat_id=?", [chat_id]
+            matched = conn.execute("SELECT COUNT(*) FROM decisions" + where, args).fetchone()[0]
+            for row in conn.execute(
+                    "SELECT decision,COUNT(*) c FROM decisions" + where + " GROUP BY decision",
+                    args):
+                by_decision[row["decision"] or "unknown"] = row["c"]
+            for row in conn.execute(
+                    "SELECT id,ts,chat_id,sender_name,text,decision,reason,reply "
+                    "FROM decisions" + where + " ORDER BY id DESC LIMIT ?",
+                    args + [limit]):
+                ts = float(row["ts"] or 0)
+                decision = row["decision"] or ""
+                logs.append({
+                    "id": row["id"],
+                    "ts": ts,
+                    "at": datetime.fromtimestamp(ts).strftime("%m-%d %H:%M:%S") if ts else "",
+                    "chat_id": row["chat_id"] or "",
+                    "chat_name": chat_display(row["chat_id"], meta),
+                    "sender": row["sender_name"] or "",
+                    "text": row["text"] or "",
+                    "decision": decision,
+                    "decision_label": BRAIN_DECISION_LABELS.get(decision, decision or "—"),
+                    "reason": row["reason"] or "",
+                    "reply": row["reply"] or "",
+                })
+            tick = conn.execute("SELECT value FROM meta WHERE key='last_tick'").fetchone()
+            dry = conn.execute("SELECT value FROM meta WHERE key='last_dry_run'").fetchone()
+            mode = conn.execute("SELECT value FROM meta WHERE key='last_llm_mode'").fetchone()
+            cur = conn.execute("SELECT value FROM meta WHERE key='cursor_rowid'").fetchone()
+            if tick and tick["value"]:
+                last = float(tick["value"])
+                ago = max(0.0, time.time() - last)
+                engine["alive"] = ago < 90
+                engine["last_tick_ago"] = int(ago)
+                engine["last_tick_at"] = datetime.fromtimestamp(last).strftime("%m-%d %H:%M:%S")
+            if dry and dry["value"] in ("0", "1"):
+                engine["dry_run"] = dry["value"] == "1"
+            if mode and mode["value"] in ("mock", "real"):
+                engine["llm_mode"] = mode["value"]
+            if cur and cur["value"]:
+                engine["cursor"] = int(cur["value"])
+            runtime = brain_runtime_payload()
+            if not runtime.get("enabled"):
+                engine["running_state"] = ("总开关已关闭（进程待机中）" if engine["alive"]
+                                           else "总开关已关闭")
+            elif engine["alive"]:
+                engine["running_state"] = "运行中"
+            elif engine["last_tick_at"]:
+                engine["running_state"] = "心跳已停（进程可能未启动）"
+            else:
+                engine["running_state"] = "尚未运行过"
+        except sqlite3.Error as error:
+            engine["running_state"] = "状态库读取失败：%s" % error
+        finally:
+            conn.close()
+    else:
+        engine["running_state"] = "状态库不存在（大脑还没跑过）"
+    return {
+        "logs": logs,
+        "by_decision": by_decision,
+        "summary": {
+            "total": total,
+            "matched": matched,
+            "replied": sum(by_decision.get(k, 0) for k in ("at_reply", "trigger", "probability")),
+            "dry": by_decision.get("dry_run", 0),
+            "skipped": by_decision.get("skip", 0),
+            "limited": sum(by_decision.get(k, 0)
+                           for k in ("quiet_hours", "cooldown", "rate_limit")),
+        },
+        "limit": limit,
+        "chat_id": chat_id,
+        "groups": [{"chat_id": c["chat_id"], "name": c["name"]}
+                   for c in query_chats() if c.get("is_group")],
+        "engine": engine,
+    }
+
+
+def brain_log_tail(lines=200):
+    """大脑进程的运行日志（brain.log 尾部）。"""
+    if not BRAIN_LOG_FILE.is_file():
+        return []
+    try:
+        with BRAIN_LOG_FILE.open("r", encoding="utf-8", errors="replace") as handle:
+            return handle.readlines()[-max(1, min(int(lines), 500)):]
+    except OSError:
+        return []
+
+
+def clear_brain_logs(chat_id=""):
+    """清空决策日志（不影响长期记忆，也不影响消息库）。返回删除条数。"""
+    conn = _brain_state_conn()
+    if conn is None:
+        return 0
+    try:
+        if chat_id:
+            cur = conn.execute("DELETE FROM decisions WHERE chat_id=?", (str(chat_id),))
+        else:
+            cur = conn.execute("DELETE FROM decisions")
+        removed = max(0, cur.rowcount)
+        conn.commit()
+        return removed
+    finally:
+        conn.close()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -2510,6 +3363,8 @@ class Handler(BaseHTTPRequestHandler):
         def one(key, default=""):
             return (p.get(key) or [default])[0]
 
+        if path == "/api/wechat-login/status":
+            return self._json(200, wechat_login_status(one("attempt_id")))
         if path == "/api/state":
             return self._json(200, state_payload())
         if path == "/api/feed":
@@ -2641,15 +3496,43 @@ class Handler(BaseHTTPRequestHandler):
             if not chat or not CHAT_ID_RE.match(chat):
                 return self._json(400, {"error": "缺少或无效的 chat_id"})
             try:
-                thread_limit = min(max(int(one("limit", "120")), 1), 200)
+                thread_limit = min(max(int(one("limit", "120")), 1), 1000)
             except ValueError:
                 thread_limit = 120
-            payload = chat_thread_payload(chat, thread_limit)
+            payload = chat_thread_payload(
+                chat, thread_limit, one("before"), one("before_key"))
             if payload.get("error"):
                 return self._json(404, payload)
             return self._json(200, payload)
         if path == "/api/config":
             return self._json(200, config_payload())
+        if path == "/api/brain/llm":
+            return self._json(200, brain_llm_payload())
+        if path == "/api/brain/groups":
+            return self._json(200, brain_groups_payload())
+        if path == "/api/brain/runtime":
+            return self._json(200, brain_runtime_payload())
+        if path == "/api/brain/persona":
+            return self._json(200, brain_persona_payload())
+        if path == "/api/brain/tuning":
+            return self._json(200, brain_tuning_payload())
+        if path == "/api/brain/test":
+            ok, msg = brain_llm_test()
+            return self._json(200, {"ok": ok, "message": msg})
+        if path == "/api/brain/logs":
+            try:
+                limit = min(max(int(one("limit", "100")), 1), 500)
+            except ValueError:
+                limit = 100
+            return self._json(200, brain_logs_payload(limit, one("chat", "")))
+        if path == "/api/brain/runtime-log":
+            try:
+                lines = min(max(int(one("lines", "150")), 1), 500)
+            except ValueError:
+                lines = 150
+            return self._json(200, {"lines": brain_log_tail(lines)})
+        if path == "/api/article-push":
+            return self._json(200, article_push.status(DB_PATH))
         if path == "/api/logs":
             try:
                 lines = min(max(int(one("lines", "60")), 1), 300)
@@ -2698,10 +3581,16 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/logout":
             drop_session(self._bearer())
             return self._json(200, {"ok": True})
-        if READONLY_MODE and path in ("/api/send", "/api/report/send",
-                                      "/api/config", "/api/chat-meta",
+        if READONLY_MODE and path in (                                      "/api/send", "/api/report/send",
+                                      "/api/config", "/api/brain/llm", "/api/brain/groups",
+                                      "/api/brain/runtime", "/api/brain/persona",
+                                      "/api/brain/tuning",
+                                      "/api/brain/logs/clear", "/api/chat-meta",
                                       "/api/chat-meta/sync",
                                       "/api/reminders/action",
+                                      "/api/article-push/config",
+                                      "/api/article-push/test",
+                                      "/api/article-push/action",
                                       "/api/social/sync", "/api/social/announcement"):
             return self._json(403, {"error": "管理台处于只读模式，写操作已禁用"})
         if path == "/api/chat-meta/sync":
@@ -2713,12 +3602,26 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(target=run_sync_once, daemon=True).start()
             return self._json(200, {"started": True,
                                     "hint": "已开始从微信读取群名与头像，约需数秒到一分钟"})
+        if path == "/api/wechat-login/attach":
+            return self._json(200, wechat_login_attach())
         payload = self._body()
+        if path == "/api/wechat-login/cancel":
+            return self._json(200, wechat_login_cancel(str(payload.get("attempt_id") or "")))
         try:
             if path == "/api/reminders/action":
                 action = str(payload.get("action") or "").strip()
                 result = reminder_action(action, payload.get("id"))
                 return self._json(200 if result.get("ok") else 400, result)
+            if path == "/api/article-push/config":
+                _cfg, changed = article_push.save_config(payload)
+                return self._json(200, {
+                    "ok": True, "changed": changed,
+                    "hint": "已保存；后台推送线程即时读取，无需重启管理台"})
+            if path == "/api/article-push/test":
+                return self._json(200, article_push.test_push(payload))
+            if path == "/api/article-push/action":
+                return self._json(200, article_push.action(
+                    str(payload.get("action") or "").strip(), DB_PATH))
             if path == "/api/social/sync":
                 if not SOCIAL_SCRIPT.is_file():
                     return self._json(500, {"error": "社交资料同步脚本不存在"})
@@ -2769,6 +3672,29 @@ class Handler(BaseHTTPRequestHandler):
                 changed = save_config(payload)
                 return self._json(200, {"changed": changed,
                                         "hint": "已保存；在桥接控制台输入 reload report_bridge 生效"})
+            if path == "/api/brain/llm":
+                changed = save_brain_llm(payload)
+                return self._json(200, {"changed": changed, "hint": "大脑模型配置已保存，下次决策生效"})
+            if path == "/api/brain/groups":
+                selected = save_brain_groups(payload)
+                return self._json(200, {"selected": selected,
+                                        "hint": "大脑群聊白名单已保存，%d 个群启用，下次轮询生效" % len(selected)})
+            if path == "/api/brain/runtime":
+                changed = save_brain_runtime(payload)
+                return self._json(200, {"changed": changed,
+                                        "hint": "大脑运行开关已保存，下次轮询生效"})
+            if path == "/api/brain/persona":
+                changed = save_brain_persona(payload)
+                return self._json(200, {"changed": changed,
+                                        "hint": "人设已保存，大脑下一轮决策就用新设定（无需重启）"})
+            if path == "/api/brain/tuning":
+                changed = save_brain_tuning(payload)
+                return self._json(200, {"changed": changed,
+                                        "hint": "节奏参数已保存，大脑下一轮就生效（无需重启）"})
+            if path == "/api/brain/logs/clear":
+                removed = clear_brain_logs(payload.get("chat_id", ""))
+                return self._json(200, {"removed": removed,
+                                        "hint": "已清空 %d 条决策日志（不影响长期记忆）" % removed})
             self._json(404, {"error": "not found"})
         except (ValueError, OSError, sqlite3.Error) as error:
             self._json(400, {"error": str(error)})
@@ -2830,6 +3756,12 @@ def main():
         threading.Thread(target=social_loop, name="wechat-social-sync",
                          daemon=True).start()
         print("群成员/好友资料：每 %d 分钟自动从微信只读同步一次。" % (SOCIAL_INTERVAL // 60))
+        threading.Thread(target=moments_random_loop, name="wechat-moments-random",
+                         daemon=True).start()
+        print("朋友圈缓存：每天 07:00-23:00 每小时随机 3-10 次只读刷新。")
+    threading.Thread(target=article_push.worker_loop, args=(DB_PATH,),
+                     name="article-push", daemon=True).start()
+    print("公众号文章推送：在网页「应用 → 文章链接推送」配置 URL 后启用（默认关闭）。")
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     server.daemon_threads = True
     try:

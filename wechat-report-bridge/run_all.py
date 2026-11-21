@@ -5,11 +5,14 @@
     python run_all.py --reuse        # 复用模式：已跑的组件不动，只补启动缺失的
     python run_all.py --dry-run      # 只打印将要执行的动作，不启动也不停止任何进程
     python run_all.py --no-alert     # 本次不拉起飞书告警
+    python run_all.py --no-brain     # 本次不拉拟人大脑（网页总开关关闭时也会自动跳过）
 
 设计要点：
 - 每个子进程 stdout/stderr 用管道逐行读取，加组件标签后打印到同一控制台。
 - 命名互斥体保证只开一个统一控制台；Ctrl+C 会关闭「本次启动」的组件。
 - 飞书告警仍是独立静默进程（主项目挂掉时它才能报故障），不在本窗口内。
+- 拟人大脑作为普通组件纳入本窗口；它自己另有 WxBridgeBrain 命名互斥体，
+  网页把 enabled 关掉时本入口不会再拉它（避免起了就退、反复刷日志）。
 - 组件启动参数与项目里各 .bat 声明保持一致，环境变量复用 launcher.build_env()。
 """
 from __future__ import annotations
@@ -41,9 +44,15 @@ FRP = WORKSPACE / "frp"
 SERVER = ROOT / "server" / "app.py"
 ADMIN = ROOT / "admin" / "app.py"
 GUARD = ROOT / "wechat_guard.py"
+BRAIN = ROOT / "brain" / "brain.py"
+BRAIN_RUNTIME = ROOT / "brain" / "runtime.local.json"
+BRAIN_CONFIG = ROOT / "brain" / "config.local.json"
 FRPC = FRP / "frp_0.72.0_windows_amd64" / "frpc.exe"
 ALERT_LOG = ROOT / "alert.log"
 MUTEX_NAME = "Local\\WxBridgeUnifiedConsole"
+
+# 接管时要先停外部隧道和大脑，再停服务（brain 读消息库，必须早于 receiver 停）
+STOP_ORDER = ["brain", "frpc", "guard", "bridge", "admin", "receiver"]
 
 # 与 wechat_guard.bat 保持一致的 v2 参数；改参数时两处一起改
 GUARD_ARGS = ["--interval", "60", "--probe-every", "300", "--nudge-minutes", "15"]
@@ -153,7 +162,31 @@ def build_components(base_env: dict) -> list[Comp]:
              "wechat_guard.py", settle=0.5),
         Comp("frpc", "frpc", [str(FRPC), "-c", "frpc.toml"], FRP,
              "frpc.toml", settle=0.5),
+        # 大脑排在最后：它只读消息库，等 receiver 把库/表准备好再起来，
+        # 否则空库首轮会刷“no such table”异常（不致命但很吵）。
+        Comp("brain", "brain", py + [str(BRAIN)], ROOT,
+             "brain/brain.py", settle=0.6),
     ]
+
+
+def brain_switch() -> dict:
+    """网页端开关状态：先取 config.local.json 兜底，再用 runtime.local.json 覆盖
+    （与 brain.py 里的 _apply_runtime_switches 保持同一优先级）。
+    只做判断，不改任何文件；两个文件都没有就按“关闭”处理，宁可不启动也不乱发消息。"""
+    state = {"enabled": False, "dry_run": True, "source": "default"}
+    for path, source in ((BRAIN_CONFIG, "config"), (BRAIN_RUNTIME, "web")):
+        if not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(data.get("enabled"), bool):
+            state["enabled"] = data["enabled"]
+        if isinstance(data.get("dry_run"), bool):
+            state["dry_run"] = data["dry_run"]
+        state["source"] = source
+    return state
 
 
 def matches(comp: Comp, proc) -> bool:
@@ -201,10 +234,9 @@ def scan_existing(comps: list[Comp]) -> dict:
 
 
 def stop_existing(found: dict, comps: list[Comp]) -> None:
-    """只终止本项目可识别的常驻进程；顺序为先断外部隧道，再停服务。"""
-    order = ["frpc", "guard", "bridge", "admin", "receiver"]
+    """只终止本项目可识别的常驻进程；顺序为先停大脑和外部隧道，再停服务。"""
     targets = []
-    for key in order:
+    for key in STOP_ORDER:
         for proc in found.get(key, []):
             targets.append((key, proc))
     if not targets:
@@ -274,8 +306,10 @@ class Runner:
             rc = proc.poll()
             if rc is not None and key not in self.exited:
                 self.exited.add(key)
-                say("sys", "组件 %s 已退出（退出码 %s）；其它组件继续运行。按 Ctrl+C 关闭本窗口。"
-                    % (key, rc))
+                hint = ("；原因见 brain\\brain.log 末几行"
+                        if key == "brain" else "")
+                say("sys", "组件 %s 已退出（退出码 %s）%s；其它组件继续运行。按 Ctrl+C 关闭本窗口。"
+                    % (key, rc, hint))
         return any(p.poll() is None for p in self.procs.values())
 
     def shutdown(self) -> None:
@@ -347,6 +381,7 @@ def main() -> int:
     ap.add_argument("--reuse", action="store_true", help="复用已运行的组件，只补启动缺失的")
     ap.add_argument("--dry-run", action="store_true", help="只打印计划，不启动/停止任何进程")
     ap.add_argument("--no-alert", action="store_true", help="本次不拉起飞书告警")
+    ap.add_argument("--no-brain", action="store_true", help="本次不拉起拟人大脑")
     args = ap.parse_args()
 
     if not args.dry_run and not acquire_single_instance():
@@ -370,17 +405,34 @@ def main() -> int:
     say("sys", "当前已运行：%s" % (", ".join("%s=%s" % (k, v) for k, v in running.items())
                                   or "无"))
 
+    brain = brain_switch()
+    run_brain = not args.no_brain
+    skip_note = "（跳过：--no-brain）"
+    if args.no_brain:
+        say("sys", "拟人大脑：本次按 --no-brain 跳过。")
+    elif not brain["enabled"]:
+        say("sys", "拟人大脑：总开关当前是关闭的（来源 %s），进程会以待机方式启动；"
+                   "网页打开开关后自动开始工作，不用重启。" % brain["source"])
+    else:
+        say("sys", "拟人大脑：总开关已开启（来源 %s，%s）。" %
+            (brain["source"], "演练模式 dry_run=true，不会真发消息"
+             if brain["dry_run"] else "实发模式 dry_run=false"))
+
     if args.dry_run:
         if args.reuse:
             for comp in comps:
-                state = "复用 PID %s" % running[comp.key] if comp.key in running else "将启动"
+                if comp.key == "brain" and not run_brain:
+                    state = skip_note
+                else:
+                    state = "复用 PID %s" % running[comp.key] if comp.key in running else "将启动"
                 say("plan", "%-7s %s | %s" % (comp.label, state, short_cmd(comp)))
         else:
-            for key in ("frpc", "guard", "bridge", "admin", "receiver"):
+            for key in STOP_ORDER:
                 if key in running:
                     say("plan", "将停止 %s PID %s" % (key, running[key]))
             for comp in comps:
-                say("plan", "将启动 %-7s | %s" % (comp.label, short_cmd(comp)))
+                state = "" if (comp.key != "brain" or run_brain) else skip_note
+                say("plan", "将启动 %-7s | %s%s" % (comp.label, short_cmd(comp), state))
         say("plan", "飞书告警：%s" % ("跳过" if args.no_alert else "确保运行（静默独立进程）"))
         say("plan", "DRY-RUN 结束，未启动或停止任何进程。")
         return 0
@@ -404,6 +456,8 @@ def main() -> int:
         for comp in comps:
             if args.reuse and comp.key in running:
                 continue
+            if comp.key == "brain" and not run_brain:
+                continue
             runner.start(comp, base_env)
 
         if not args.no_alert:
@@ -416,6 +470,10 @@ def main() -> int:
 
         say("sys", "-".ljust(58, "-"))
         say("sys", "全部就绪 · 管理台 http://127.0.0.1:8088 · 接收端 http://127.0.0.1:8080/health")
+        if run_brain and "brain" in runner.procs:
+            say("sys", "拟人大脑已随本窗口启动（%s）；决策日志看管理台「应用 → 拟人大脑」，"
+                       "文件日志 brain\\brain.log。" %
+                ("演练 dry_run" if brain["dry_run"] else "实发模式"))
         say("sys", "下面开始实时显示各组件日志；按 Ctrl+C 停止本次启动的全部组件。")
         say("sys", "-".ljust(58, "-"))
 

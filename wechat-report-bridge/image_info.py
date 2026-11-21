@@ -13,7 +13,7 @@ admin/chats.auto.json 里的真实群名。
     python image_info.py                     表格输出（按时间倒序）
     python image_info.py --json              JSON
     python image_info.py --csv out.csv       导出 CSV
-    python image_info.py --chat 58507398167@chatroom   只看某个会话
+    python image_info.py --chat 你的群ID@chatroom   只看某个会话
     python image_info.py --limit 10          只看最近 10 条
 """
 from __future__ import annotations

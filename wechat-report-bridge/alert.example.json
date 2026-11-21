@@ -29,7 +29,7 @@
   "daily_digest_hour": 9,
   "remote_probe": {
     "enabled": false,
-    "host": "47.93.83.187",
+    "host": "你的服务器IP",
     "port": 5980,
     "timeout_seconds": 5
   },

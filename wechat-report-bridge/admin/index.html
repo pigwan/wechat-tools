@@ -4,8 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>微信 · 本地镜像</title>
+  <script>
+    /* 清掉废弃的宽度存储键。宽度失控的真正原因是 .list 缺 min-width:0，
+       已在 style.css 修复；这里只防止万一加载到旧版 app.js 时又读回旧值。 */
+    try {
+      localStorage.removeItem("listWidth");
+      localStorage.removeItem("listWidth2");
+      localStorage.removeItem("listWidth3");
+      localStorage.removeItem("listWidthResetV3");
+    } catch (e) {}
+  </script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23131b2a'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-size='36' font-weight='700' fill='%2307c160' font-family='Arial'%3EW%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/style.css?v=20">
 </head>
 <body>
   <div id="app">
@@ -92,6 +102,6 @@
 
   <div id="toast" class="toast"></div>
 
-  <script src="/app.js"></script>
+  <script src="/app.js?v=20"></script>
 </body>
 </html>

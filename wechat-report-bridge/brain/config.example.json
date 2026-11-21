@@ -1,0 +1,94 @@
+{
+  "_说明": "复制为 config.local.json 后修改。令牌/密钥不要写进本模板或提交到仓库。",
+
+  "enabled": false,
+  "_enabled": "总开关。false 时进程即使运行也不做任何决策、不读消息、不发消息。",
+
+  "auto_start_with_launcher": false,
+  "_auto_start_with_launcher": "是否随主项目 launcher 自动拉起。默认关闭，手动验证通过后再打开。",
+
+  "poll_seconds": 2,
+  "_poll_seconds": "轮询 messages.db 新消息的间隔秒数，默认 2。越小越灵敏；有空消息时会自适应到 0.3 秒连扫。",
+
+  "dry_run": true,
+  "_dry_run": "演练模式：完整走决策和 LLM，但只写日志、不写入发送队列。灰度期务必先保持 true。",
+
+  "dry_run_llm": true,
+  "_dry_run_llm": "演练时是否也真调大模型（true=能看真实回复效果，消耗 token；false=用本地模拟文本）。网页运行开关里可勾选。",
+
+  "paths": {
+    "messages_db": "../server/messages.sqlite3",
+    "outbox_db": "../../vendor/helper-main/.runtime/send_outbox.sqlite3",
+    "state_db": "brain_state.sqlite3",
+    "llm_config": "../../vendor/helper-main/llm_config.json"
+  },
+  "_paths": "均相对本 config 文件所在目录。llm_config 复用现有 DeepSeek 配置，不单独存密钥。",
+
+  "groups": {
+    "53279547548@chatroom": {
+      "enabled": true,
+      "name": "测试群（请改成你的真实群）",
+      "persona": "你是群里一个爱接话、说话简短口语化的成员。不要自称 AI、机器人或助手。回复控制在 1-3 句，偶尔用一两个语气词。",
+      "personality": "normal",
+      "_personality": "normal / 嘴臭 / 卑微 / 夸夸，对齐现有 personality.py 的群人格。",
+      "reply_probability": 0.28,
+      "_reply_probability": "每条普通消息被回复的概率，0-1。被@时不受此限制。",
+      "context_limit": 10,
+      "_context_limit": "送进模型的本群历史条数，默认 10。",
+      "quiet_hours": [[0, 8]],
+      "_quiet_hours": "安静时段 [[开始,结束],...]，24小时制。此区间内不主动插话，但仍响应@。",
+      "cooldown_seconds": 90,
+      "_cooldown_seconds": "两次主动插话的最小间隔，防止刷屏。",
+      "max_replies_per_10min": 6,
+      "_max_replies_per_10min": "每 10 分钟主动插话上限。",
+      "follow_window_seconds": 180,
+      "_follow_window_seconds": "跟进窗口：刚说过话后的这段时间算「同一段对话」，期间用 follow_probability 和 follow_cooldown_seconds。填 0 关闭跟进（每句都按开场概率重掷）。",
+      "follow_probability": 0.85,
+      "_follow_probability": "跟进时的接话概率，通常比 reply_probability 高，才接得上话。",
+      "follow_max_turns": 4,
+      "_follow_max_turns": "一段对话里最多连说几句，接满就交回给人，避免自说自话。",
+      "follow_cooldown_seconds": 6,
+      "_follow_cooldown_seconds": "跟进时的冷却（比 cooldown_seconds 短），太大会显得反应慢。",
+      "energy": {
+        "base": 0.7,
+        "drain_per_reply": 0.06,
+        "recover_per_minute": 0.01,
+        "min": 0.15
+      },
+      "_energy": "精力模型：发言越多精力越低，回复概率按当前精力缩放；随时间恢复。",
+      "at_reply": true,
+      "_at_reply": "true=被真@时必定回复（不受概率、冷却、安静时段限制）。建议保持 true，否则被@也可能不回；网页运行开关里有同名全局开关可一键覆盖。",
+      "trigger_words": [],
+      "_trigger_words": "命中任一关键词就回复（不受概率限制），例如 ['大肥鱼','小助手']。"
+    }
+  },
+  "_groups": "键是真实会话 ID（xxx@chatroom）。只有列在这里且 enabled=true 的群才会被处理，其余群完全不碰。",
+
+  "self_wxid": "",
+  "_self_wxid": "机器人自己的 wxid，用于跳过自己发的消息。留空时自动从 bot_config.json 读取。",
+
+  "memory": {
+    "enabled": true,
+    "top_k": 12,
+    "_top_k": "每次回复最多注入多少条相关记忆。",
+    "extract_min_minutes": 10,
+    "extract_min_messages": 8,
+    "_extract": "距上次提炼≥10分钟 且 窗口内≥8条消息才提炼一次，防止频繁烧 token。",
+    "extract_window": 60,
+    "_extract_window": "提炼时看该群最近多少条消息。"
+  },
+  "_memory": "长期记忆系统：艾宾浩斯遗忘曲线 + 情绪加权 + 检索增强。",
+
+  "rate": {
+    "at_min_delay_seconds": 1,
+    "at_max_delay_seconds": 2.5,
+    "_at_delay": "被@时的随机延迟区间（秒）。比主动插话短，像是看到提醒就回。",
+    "min_reply_delay_seconds": 2,
+    "max_reply_delay_seconds": 7,
+    "_reply_delay": "主动插话的随机延迟区间（秒），决策后先排程再入队。",
+    "split_long_reply": true,
+    "split_threshold": 120,
+    "split_delay_seconds": 3,
+    "_split": "超过阈值字符数时拆成多条，逐条间隔入队。"
+  }
+}

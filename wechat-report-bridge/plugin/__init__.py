@@ -845,9 +845,10 @@ class Plugin:
             return self._reminder_reply(ctx, chat_id, "❌ " + str(parsed.get("error") or "指令无法识别"))
 
         if self.reminder_lexicon:
-            hit = _core.find_banned(parsed["content"], self.reminder_lexicon)
-            if hit:
-                return self._reminder_reply(ctx, chat_id, "❌ 内容涉及违禁词或违法违规信息，无法设置提醒。")
+            # 命中的词全部列出，逐字打码后回复（不在消息里原样重发违禁词）
+            hits = _core.find_banned_all(parsed["content"], self.reminder_lexicon, limit=8)
+            if hits:
+                return self._reminder_reply(ctx, chat_id, _core.format_banned_reply(hits))
 
         # @名单来自微信原生 msgsource（真实 wxid），比解析昵称可靠。
         # 群：提醒对象 = 发起人 + 被 @ 的其他人，排除机器人自己。
